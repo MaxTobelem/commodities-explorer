@@ -7,14 +7,14 @@ cours USD/EUR, pays détenteurs/producteurs, secteurs d'usage, produits du quoti
 ## Stack
 
 - **Backend** : Django 5.2 LTS + Django REST Framework, django-filter, django-unfold (admin), PostgreSQL (SQLite en dev), `uv`.
-- **Frontend** *(à venir)* : Vite + React + TypeScript + Tailwind + shadcn/ui.
+- **Frontend** : Vite + React + TypeScript + Tailwind v4 + shadcn/ui, TanStack Query, Recharts, react-router.
 - **Sources de données** : Commodities-API (cours), USGS + EU JRC RMIS (réserves/production/secteurs/produits), GDELT (conflits).
 
 ## Structure
 
 ```
 backend/    # API Django + import des données
-frontend/   # SPA React (à venir)
+frontend/   # SPA React (explorateur à facettes)
 ```
 
 ## Démarrage backend (dev)
@@ -28,6 +28,18 @@ uv run python manage.py seed         # jeu de données initial (idempotent)
 uv run python manage.py createsuperuser
 uv run python manage.py runserver    # admin sur http://localhost:8000/admin/
 ```
+
+## Démarrage frontend (dev)
+
+```bash
+cd frontend
+npm install
+npm run dev    # http://localhost:5173 (proxy /api → http://localhost:8000)
+```
+
+Le backend doit tourner en parallèle. Crée un compte (email) via `createsuperuser`
+ou l'admin, puis connecte-toi : saisis ton email → un **code** est envoyé (en dev,
+il s'affiche dans la console du serveur Django) → entre le code.
 
 ## Tests
 
