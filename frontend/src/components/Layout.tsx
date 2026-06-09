@@ -1,4 +1,5 @@
 import { Boxes } from "lucide-react"
+import { Suspense } from "react"
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom"
 
 import { useAuth } from "@/auth"
@@ -47,7 +48,11 @@ export function Layout() {
         </div>
       </header>
       <main className="mx-auto max-w-7xl w-full px-4 py-6 flex-1">
-        <Outlet />
+        <Suspense
+          fallback={<div className="py-16 text-center text-sm text-muted-foreground">Chargement…</div>}
+        >
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )
