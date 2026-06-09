@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Search, X } from "lucide-react"
 import { Link, useSearchParams } from "react-router-dom"
 
+import { Sparkline } from "@/components/Sparkline"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -262,29 +263,49 @@ function Results({ entity, data }: { entity: string; data: unknown[] }) {
   if (entity === "commodities") {
     return (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {(data as Commodity[]).map((c) => (
-          <Link key={c.slug} to={`/commodity/${c.slug}`}>
-            <Card className="h-full transition-colors hover:border-primary/40 hover:bg-accent/40">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base">{c.name}</CardTitle>
-                  <Badge variant="secondary">{c.category_display}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="flex items-end justify-between">
-                <div>
-                  <div className="text-2xl font-semibold tabular-nums">
-                    {formatPrice(c.latest_price_usd, "usd")}
+        {(data as Commodity[]).map((c) => {
+          const spark = c.sparkline ?? []
+          const change =
+            spark.length > 1 && spark[0]
+              ? ((spark[spark.length - 1] - spark[0]) / spark[0]) * 100
+              : null
+          return (
+            <Link key={c.slug} to={`/commodity/${c.slug}`}>
+              <Card className="h-full transition-colors hover:border-primary/40 hover:bg-accent/40">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">{c.name}</CardTitle>
+                    <Badge variant="secondary">{c.category_display}</Badge>
                   </div>
-                  <div className="text-sm text-muted-foreground tabular-nums">
-                    {formatPrice(c.latest_price_eur, "eur")} · {c.price_unit}
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-end justify-between gap-2">
+                    <div>
+                      <div className="text-2xl font-semibold tabular-nums">
+                        {formatPrice(c.latest_price_usd, "usd")}
+                      </div>
+                      <div className="text-sm text-muted-foreground tabular-nums">
+                        {formatPrice(c.latest_price_eur, "eur")} · {c.price_unit}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground">{c.symbol}</div>
+                      {change != null && (
+                        <div
+                          className={`text-xs font-medium tabular-nums ${change >= 0 ? "text-emerald-600" : "text-destructive"}`}
+                        >
+                          {change >= 0 ? "+" : ""}
+                          {change.toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <span className="text-xs text-muted-foreground">{c.symbol}</span>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+                  {spark.length > 1 && <Sparkline data={spark} className="h-8 w-full" />}
+                </CardContent>
+              </Card>
+            </Link>
+          )
+        })}
       </div>
     )
   }

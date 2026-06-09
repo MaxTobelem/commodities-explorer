@@ -1,8 +1,13 @@
 import { Boxes } from "lucide-react"
-import { Link, Outlet, useNavigate } from "react-router-dom"
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom"
 
 import { useAuth } from "@/auth"
 import { Button } from "@/components/ui/button"
+
+const navCls = ({ isActive }: { isActive: boolean }) =>
+  `rounded-md px-3 py-1.5 transition-colors ${
+    isActive ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+  }`
 
 export function Layout() {
   const { user, logout } = useAuth()
@@ -16,6 +21,14 @@ export function Layout() {
             <Boxes className="size-5" />
             <span>Matières premières</span>
           </Link>
+          <nav className="hidden sm:flex items-center gap-1 text-sm">
+            <NavLink to="/" end className={navCls}>
+              Explorer
+            </NavLink>
+            <NavLink to="/compare" className={navCls}>
+              Comparer
+            </NavLink>
+          </nav>
           <div className="flex items-center gap-3">
             {user && (
               <span className="text-sm text-muted-foreground hidden md:inline">{user.email}</span>

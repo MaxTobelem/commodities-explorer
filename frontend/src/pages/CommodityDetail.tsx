@@ -3,6 +3,7 @@ import { ArrowLeft, TrendingDown, TrendingUp } from "lucide-react"
 import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
+import { Choropleth, type MapDatum } from "@/components/Choropleth"
 import { PriceChart } from "@/components/PriceChart"
 import { RankBar, type RankItem } from "@/components/RankBar"
 import { Badge } from "@/components/ui/badge"
@@ -74,10 +75,13 @@ export function CommodityDetail() {
     return new Date(p.date) >= limit
   })
 
-  const geoRows: RankItem[] =
+  const geoMap: MapDatum[] =
     geo === "production"
-      ? topRows(production.data ?? [], (r) => Number(r.production_t), (r) => r.country)
-      : topRows(reserves.data ?? [], (r) => Number(r.reserves_t), (r) => r.country)
+      ? latestYearData(production.data ?? [], (r) => Number(r.production_t), (r) => r.country)
+      : latestYearData(reserves.data ?? [], (r) => Number(r.reserves_t), (r) => r.country)
+  const geoRows: RankItem[] = geoMap
+    .slice(0, 8)
+    .map((d) => ({ label: d.name, value: d.value, href: `/country/${d.iso3}` }))
 
   const sectorRows: RankItem[] = (usages.data ?? [])
     .filter((u) => u.share_percent !== null)
@@ -150,7 +154,10 @@ export function CommodityDetail() {
             />
           </CardHeader>
           <CardContent>
-            <RankBar items={geoRows} format={formatTonnes} />
+            <Choropleth data={geoMap} format={formatTonnes} />
+            <div className="mt-4">
+              <RankBar items={geoRows} format={formatTonnes} />
+            </div>
           </CardContent>
         </Card>
 
@@ -217,13 +224,16 @@ export function CommodityDetail() {
   )
 }
 
-function topRows<T>(rows: T[], value: (r: T) => number, country: (r: T) => { name: string; iso3: string }): RankItem[] {
+function latestYearData<T>(
+  rows: T[],
+  value: (r: T) => number,
+  country: (r: T) => { name: string; iso3: string },
+): MapDatum[] {
   const latestYear = Math.max(0, ...rows.map((r) => (r as { year: number }).year))
   return rows
     .filter((r) => (r as { year: number }).year === latestYear)
-    .map((r) => ({ label: country(r).name, value: value(r), href: `/country/${country(r).iso3}` }))
+    .map((r) => ({ iso3: country(r).iso3, name: country(r).name, value: value(r) }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 8)
 }
 
 function ToggleGroup({

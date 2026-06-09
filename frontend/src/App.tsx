@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import { AuthProvider, useAuth } from "@/auth"
 import { Layout } from "@/components/Layout"
 import { CommodityDetail } from "@/pages/CommodityDetail"
+import { Compare } from "@/pages/Compare"
 import { CountryDetail, EventDetail, ProductDetail, SectorDetail } from "@/pages/EntityDetails"
 import { Explorer } from "@/pages/Explorer"
 import { Login } from "@/pages/Login"
@@ -38,6 +39,7 @@ function AppRoutes() {
         }
       >
         <Route path="/" element={<Explorer />} />
+        <Route path="/compare" element={<Compare />} />
         <Route path="/commodity/:slug" element={<CommodityDetail />} />
         <Route path="/country/:iso3" element={<CountryDetail />} />
         <Route path="/sector/:slug" element={<SectorDetail />} />

@@ -60,14 +60,20 @@ class CommodityListSerializer(serializers.ModelSerializer):
         max_digits=16, decimal_places=4, allow_null=True, read_only=True
     )
     latest_price_date = serializers.DateField(allow_null=True, read_only=True)
+    sparkline = serializers.SerializerMethodField()
 
     class Meta:
         model = Commodity
         fields = [
             "id", "name", "slug", "symbol", "category", "category_display",
             "price_unit", "image_url",
-            "latest_price_usd", "latest_price_eur", "latest_price_date",
+            "latest_price_usd", "latest_price_eur", "latest_price_date", "sparkline",
         ]
+
+    def get_sparkline(self, obj) -> list[float]:
+        # Last 30 daily USD prices (oldest→newest) for a card sparkline.
+        prices = obj.prices.order_by("-date").values_list("price_usd", flat=True)[:30]
+        return [float(p) for p in reversed(list(prices))]
 
 
 class CommodityDetailSerializer(CommodityListSerializer):

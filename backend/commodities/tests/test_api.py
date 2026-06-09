@@ -48,6 +48,16 @@ def test_list_commodities(client, seeded):
     assert {"Aluminium", "Cobalt", "Or"} <= names(r.json())
 
 
+def test_list_includes_sparkline_oldest_to_newest(client, seeded):
+    cobalt = Commodity.objects.get(slug="cobalt")  # seeded adds a 2024-06-01 quote at 30000
+    PriceQuote.objects.create(commodity=cobalt, date=dt.date(2024, 1, 1), price_usd=Decimal("28000"), source="seed")
+    PriceQuote.objects.create(commodity=cobalt, date=dt.date(2024, 3, 1), price_usd=Decimal("29000"), source="seed")
+
+    row = next(c for c in client.get("/api/commodities/").json()["results"] if c["slug"] == "cobalt")
+
+    assert row["sparkline"] == [28000.0, 29000.0, 30000.0]
+
+
 def test_detail_has_latest_price_annotation(client, seeded):
     body = client.get("/api/commodities/cobalt/").json()
     assert body["latest_price_usd"] == "30000.0000"
