@@ -148,6 +148,26 @@ def test_gdelt_ignores_low_signal():
     assert result.impacts == []
 
 
+@responses.activate
+def test_gdelt_handles_rate_limit_gracefully():
+    cobalt = make_cobalt()
+    drc = Country.objects.create(name="RD Congo", iso3="COD")
+    CommodityProduction.objects.create(
+        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
+    )
+    # GDELT returns plain text (not JSON) with HTTP 429 when rate-limited.
+    responses.add(
+        responses.GET,
+        GDELT_DOC_API,
+        body="Please limit requests to one every 5 seconds.",
+        status=429,
+    )
+
+    result = GdeltProvider().fetch([cobalt])
+
+    assert result.impacts == []  # no crash, no bogus impact
+
+
 def test_usgs_parses_production_csv():
     cobalt = make_cobalt()
     csv_text = "iso3,country,year,production_t\nCOD,RD Congo,2024,130000\nAUS,Australie,2024,5900\n"

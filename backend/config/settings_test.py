@@ -12,3 +12,6 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+# No real network pacing during tests.
+GDELT_REQUEST_DELAY = 0
