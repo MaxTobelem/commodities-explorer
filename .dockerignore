@@ -1,0 +1,10 @@
+# Applies to the root-context build (web/frontend image).
+.git
+.claude
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+**/*.sqlite3
+backend
+*.md

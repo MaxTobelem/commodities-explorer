@@ -10,6 +10,9 @@ db.sqlite3-journal
 /backend/media/
 # Env / secrets
 .env
+.env.*
+!.env.example
+!.env.prod.example
 *.local
 # Node / frontend
 node_modules/

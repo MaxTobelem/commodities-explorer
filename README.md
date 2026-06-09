@@ -17,16 +17,20 @@ backend/    # API Django + import des données
 frontend/   # SPA React (explorateur à facettes)
 ```
 
-## Démarrage backend (dev)
+## Démarrage en dev (hybride : Postgres via Docker, apps en natif)
 
 ```bash
+# 1. Base de données (depuis la racine du repo)
+docker compose up -d db
+
+# 2. Backend
 cd backend
-uv sync                              # installe les dépendances (Python 3.12)
-cp .env.example .env                 # ajuste si besoin
+uv sync                              # dépendances (Python 3.12)
+cp .env.example .env                 # DATABASE_URL pointe déjà sur le Postgres Docker
 uv run python manage.py migrate
 uv run python manage.py seed         # jeu de données initial (idempotent)
 uv run python manage.py createsuperuser
-uv run python manage.py runserver    # admin sur http://localhost:8000/admin/
+uv run python manage.py runserver    # http://localhost:8000 (admin sur /admin/)
 ```
 
 ## Démarrage frontend (dev)

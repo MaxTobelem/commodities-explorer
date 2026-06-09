@@ -1,0 +1,45 @@
+# Production: full stack. Build images and run on the VPS.
+#   docker compose -f docker-compose.prod.yml up -d --build
+# `web` (Nginx) serves the built SPA and reverse-proxies /api, /admin, /static
+# to the Django backend. Bind `web` to the VPN interface (see DEPLOY.md).
+services:
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - ./backend/.env.prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    # Bind to the VPN interface in prod, e.g. WEB_BIND=100.x.y.z (Tailscale) or
+    # keep 127.0.0.1 and front it with `tailscale serve` / a TLS proxy.
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:80:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
