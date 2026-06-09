@@ -1,5 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.shortcuts import redirect
+from django.urls import reverse
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.decorators import action
+
+from commodities import services
 
 from .models import (
     Commodity,
@@ -47,6 +52,15 @@ class CommodityAdmin(ModelAdmin):
     search_fields = ["name", "symbol", "price_symbol"]
     prepopulated_fields = {"slug": ["name"]}
     inlines = [CommodityUsageInline, ProductCompositionInline, EventImpactInline]
+    actions_list = ["run_full_update"]
+
+    @action(description="Lancer une mise à jour complète")
+    def run_full_update(self, request):
+        """Admin button: re-run the full enrichment pass (USGS/RMIS/GDELT)."""
+        run = services.enrich_data(kind=ImportRun.Kind.FULL)
+        level = messages.SUCCESS if run.status == ImportRun.Status.SUCCESS else messages.ERROR
+        self.message_user(request, f"Mise à jour ({run.get_status_display()}) : {run.message}", level)
+        return redirect(reverse("admin:commodities_commodity_changelist"))
 
 
 @admin.register(Country)

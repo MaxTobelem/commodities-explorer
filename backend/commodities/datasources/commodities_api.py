@@ -1,0 +1,139 @@
+"""Commodities-API price provider (https://www.commodities-api.com/).
+
+Single provider covering aluminium (ALU), cobalt (LCO), gold (XAU), silver
+(XAG), copper (XCU), nickel (NI), zinc, lead, lithium... in one batched call,
+returning prices in USD and EUR.
+
+Convention: the `/latest` endpoint returns rates relative to the base currency
+(USD), i.e. "how many units of the symbol per 1 USD"; the price per unit is
+therefore ``1 / rate``. EUR is requested as an extra symbol so we can convert
+``price_eur = price_usd * (EUR per USD)`` from the same call (single source).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any
+
+import requests
+from django.conf import settings
+
+from .base import PriceData, PriceProvider
+
+if TYPE_CHECKING:
+    from commodities.models import Commodity
+
+_QUANT = Decimal("0.0001")
+
+
+class CommoditiesApiProvider(PriceProvider):
+    key = "commodities_api"
+
+    # Settings are read lazily so env changes (and test overrides) take effect.
+
+    @property
+    def base_url(self) -> str:
+        return getattr(
+            settings, "COMMODITIES_API_BASE_URL", "https://api.commodities-api.com/api"
+        ).rstrip("/")
+
+    @property
+    def api_key(self) -> str:
+        return getattr(settings, "COMMODITIES_API_KEY", "")
+
+    @property
+    def rate_is_per_usd(self) -> bool:
+        # Guards against the upstream rate convention being inverted.
+        return getattr(settings, "COMMODITIES_API_RATE_IS_PER_USD", True)
+
+    @property
+    def timeout(self) -> int:
+        return getattr(settings, "COMMODITIES_API_TIMEOUT", 20)
+
+    # -- public --------------------------------------------------------------
+
+    def fetch_latest(self, commodities: list[Commodity]) -> list[PriceData]:
+        symbol_to_commodity: dict[str, Commodity] = {}
+        for commodity in commodities:
+            if commodity.price_symbol:
+                symbol_to_commodity.setdefault(commodity.price_symbol.upper(), commodity)
+        if not symbol_to_commodity:
+            return []
+
+        payload = self._request(sorted(symbol_to_commodity))
+        rates = self._extract_rates(payload)
+        quote_date = self._extract_date(payload)
+        eur_per_usd = self._to_decimal(rates.get("EUR"))
+
+        results: list[PriceData] = []
+        for symbol, commodity in symbol_to_commodity.items():
+            price_usd = self._price_from_rate(rates.get(symbol))
+            if price_usd is None:
+                continue  # symbol not covered by the upstream API — skip, don't fail
+            price_eur = (
+                (price_usd * eur_per_usd).quantize(_QUANT) if eur_per_usd is not None else None
+            )
+            results.append(
+                PriceData(
+                    commodity=commodity,
+                    date=quote_date,
+                    price_usd=price_usd,
+                    price_eur=price_eur,
+                    source=self.key,
+                )
+            )
+        return results
+
+    # -- internals -----------------------------------------------------------
+
+    def _request(self, symbols: list[str]) -> dict[str, Any]:
+        if not self.api_key:
+            raise RuntimeError(
+                "COMMODITIES_API_KEY manquant — configurez la clé dans l'environnement."
+            )
+        params = {
+            "access_key": self.api_key,
+            "base": "USD",
+            "symbols": ",".join([*symbols, "EUR"]),
+        }
+        response = requests.get(f"{self.base_url}/latest", params=params, timeout=self.timeout)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is False:
+            raise RuntimeError(f"Commodities-API erreur: {payload.get('error')}")
+        return payload
+
+    @staticmethod
+    def _extract_rates(payload: dict[str, Any]) -> dict[str, Any]:
+        if "rates" in payload:
+            return payload["rates"] or {}
+        data = payload.get("data") or {}
+        return data.get("rates") or {}
+
+    @staticmethod
+    def _extract_date(payload: dict[str, Any]) -> dt.date:
+        raw = payload.get("date") or (payload.get("data") or {}).get("date")
+        if isinstance(raw, str):
+            try:
+                return dt.date.fromisoformat(raw[:10])
+            except ValueError:
+                pass
+        return dt.date.today()
+
+    @staticmethod
+    def _to_decimal(value: Any) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            dec = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+        return dec if dec != 0 else None
+
+    def _price_from_rate(self, rate: Any) -> Decimal | None:
+        dec = self._to_decimal(rate)
+        if dec is None:
+            return None
+        price = (Decimal(1) / dec) if self.rate_is_per_usd else dec
+        return price.quantize(_QUANT)

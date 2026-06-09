@@ -1,0 +1,191 @@
+"""Orchestration of data imports.
+
+These functions are the single entry point used by both the management commands
+(cron) and the admin "run update" action. Each wraps its work in an ImportRun so
+progress/outcome is visible and auditable.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+
+from django.db import transaction
+from django.utils.text import slugify
+
+from .datasources.base import EnrichmentResult
+from .datasources.registry import get_enrichment_providers, get_price_provider
+from .models import (
+    Commodity,
+    CommodityProduction,
+    CommodityReserve,
+    CommodityUsage,
+    Country,
+    Event,
+    EventImpact,
+    ImportRun,
+    PriceQuote,
+    Product,
+    ProductComposition,
+    Sector,
+)
+
+
+def update_prices() -> ImportRun:
+    """Fetch and upsert the latest price quotes for all active commodities.
+
+    Idempotent: re-running on the same day updates existing quotes (keyed by
+    commodity+date+source) rather than creating duplicates.
+    """
+    run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
+    try:
+        commodities = list(Commodity.objects.filter(is_active=True))
+        by_provider: dict[str, list[Commodity]] = defaultdict(list)
+        for commodity in commodities:
+            by_provider[commodity.price_provider].append(commodity)
+
+        created = updated = 0
+        priced_ids: set[int] = set()
+        missing_providers: set[str] = set()
+
+        for provider_key, items in by_provider.items():
+            provider = get_price_provider(provider_key)
+            if provider is None:
+                missing_providers.add(provider_key)
+                continue
+            for price in provider.fetch_latest(items):
+                _, was_created = PriceQuote.objects.update_or_create(
+                    commodity=price.commodity,
+                    date=price.date,
+                    source=price.source,
+                    defaults={"price_usd": price.price_usd, "price_eur": price.price_eur},
+                )
+                created += int(was_created)
+                updated += int(not was_created)
+                priced_ids.add(price.commodity.pk)
+
+        skipped = len(commodities) - len(priced_ids)
+        message = (
+            f"{created} cours créés, {updated} mis à jour, {skipped} matières sans prix."
+        )
+        if missing_providers:
+            message += f" Fournisseurs inconnus: {', '.join(sorted(missing_providers))}."
+        run.finish(ImportRun.Status.SUCCESS, message)
+    except Exception as exc:  # noqa: BLE001 — surface any failure into the audit row
+        run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
+    return run
+
+
+def enrich_data(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
+    """Run all enrichment providers and upsert their records (monthly cadence).
+
+    Per-provider failures are isolated so one bad source doesn't abort the rest.
+    Qualitative rows (usages/compositions/impacts) are tagged needs_review for
+    admin validation; reserves/production are authoritative.
+    """
+    run = ImportRun.objects.create(kind=kind)
+    try:
+        commodities = list(Commodity.objects.filter(is_active=True))
+        merged = EnrichmentResult()
+        provider_errors: list[str] = []
+        for provider in get_enrichment_providers():
+            try:
+                merged.extend(provider.fetch(commodities))
+            except Exception as exc:  # noqa: BLE001 — isolate per-source failures
+                provider_errors.append(f"{provider.key}: {type(exc).__name__}")
+
+        counts = _apply_enrichment(merged)
+        message = (
+            f"{counts['production']} productions, {counts['reserves']} réserves, "
+            f"{counts['usages']} usages, {counts['compositions']} compositions, "
+            f"{counts['impacts']} impacts."
+        )
+        if provider_errors:
+            message += " Avertissements: " + "; ".join(provider_errors)
+        run.finish(ImportRun.Status.SUCCESS, message)
+    except Exception as exc:  # noqa: BLE001
+        run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
+    return run
+
+
+@transaction.atomic
+def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
+    counts = {"production": 0, "reserves": 0, "usages": 0, "compositions": 0, "impacts": 0}
+    country_cache: dict[str, Country] = {}
+
+    def country_for(iso3: str, name: str) -> Country:
+        if iso3 not in country_cache:
+            country_cache[iso3], _ = Country.objects.get_or_create(
+                iso3=iso3, defaults={"name": name}
+            )
+        return country_cache[iso3]
+
+    for rec in result.production:
+        CommodityProduction.objects.update_or_create(
+            commodity=rec.commodity,
+            country=country_for(rec.country_iso3, rec.country_name),
+            year=rec.year,
+            defaults={"production_t": rec.production_t, "source": rec.source},
+        )
+        counts["production"] += 1
+
+    for rec in result.reserves:
+        CommodityReserve.objects.update_or_create(
+            commodity=rec.commodity,
+            country=country_for(rec.country_iso3, rec.country_name),
+            year=rec.year,
+            defaults={"reserves_t": rec.reserves_t, "source": rec.source},
+        )
+        counts["reserves"] += 1
+
+    for rec in result.usages:
+        sector, _ = Sector.objects.get_or_create(
+            slug=slugify(rec.sector_name),
+            defaults={"name": rec.sector_name, "nace_code": rec.nace_code},
+        )
+        CommodityUsage.objects.update_or_create(
+            commodity=rec.commodity,
+            sector=sector,
+            defaults={
+                "share_percent": rec.share_percent,
+                "description": rec.description,
+                "source": rec.source,
+                "needs_review": True,
+            },
+        )
+        counts["usages"] += 1
+
+    for rec in result.compositions:
+        product, _ = Product.objects.get_or_create(
+            slug=slugify(rec.product_name), defaults={"name": rec.product_name}
+        )
+        ProductComposition.objects.update_or_create(
+            commodity=rec.commodity,
+            product=product,
+            defaults={"role": rec.role, "source": rec.source, "needs_review": True},
+        )
+        counts["compositions"] += 1
+
+    for rec in result.impacts:
+        event, _ = Event.objects.get_or_create(
+            slug=slugify(rec.event_title),
+            defaults={
+                "title": rec.event_title,
+                "type": rec.event_type,
+                "start_date": rec.start_date,
+                "description": rec.description,
+                "source_url": rec.source_url,
+            },
+        )
+        EventImpact.objects.update_or_create(
+            event=event,
+            commodity=rec.commodity,
+            defaults={
+                "direction": rec.direction,
+                "magnitude": rec.magnitude,
+                "source": rec.source,
+                "needs_review": True,
+            },
+        )
+        counts["impacts"] += 1
+
+    return counts
