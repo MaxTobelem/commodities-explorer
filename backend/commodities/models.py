@@ -209,6 +209,11 @@ class CommodityProduction(Sourced):
         max_digits=22, decimal_places=2, help_text="Valeur de production annuelle"
     )
     unit = models.CharField(max_length=8, default="t", help_text="Unité (t, TWh…)")
+    note = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Base de la mesure (ex. Production minière, Production d'énergie)",
+    )
 
     class Meta:
         verbose_name = "production"

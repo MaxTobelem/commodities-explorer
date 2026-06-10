@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import io
 import zipfile
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
@@ -66,6 +67,15 @@ COUNTRY_OVERRIDES: dict[str, tuple[str, str]] = {
 }
 # Rows whose COUNTRY contains one of these are aggregates, not a single country.
 SKIP_TOKENS = ("world", "other countr", "total", " and ", "european", "unspecified")
+
+# USGS reports several production stages; we keep ONE primary stage per commodity
+# (preferring raw extraction) so a metal's producers stay comparable, then label it.
+STAGE_PRIORITY = ("mine", "smelter", "refinery")
+STAGE_LABELS = {
+    "mine": "Production minière",
+    "smelter": "Production de fonderie",
+    "refinery": "Production de raffinage",
+}
 
 
 class UsgsProvider(EnrichmentProvider):
@@ -129,32 +139,52 @@ class UsgsProvider(EnrichmentProvider):
         cls, csv_text: str, wanted: dict[str, Commodity]
     ) -> EnrichmentResult:
         result = EnrichmentResult()
-        reader = csv.DictReader(io.StringIO(csv_text))
-        for row in reader:
+        # Group production rows per commodity so we can keep ONE primary stage
+        # (mine > smelter > refinery) — otherwise e.g. copper mixes mine and
+        # refinery figures across countries and rankings become inconsistent.
+        rows_by_commodity: dict[Commodity, list[tuple[dict, str]]] = defaultdict(list)
+        for row in csv.DictReader(io.StringIO(csv_text)):
             commodity = wanted.get((row.get("COMMODITY") or "").strip())
             if commodity is None or "production" not in (row.get("TYPE") or "").lower():
                 continue
-            iso3, name = cls._resolve_country(row.get("COUNTRY") or "")
-            if iso3 is None:
-                continue
-            unit = (row.get("UNIT_MEAS") or "").strip().lower()
+            rows_by_commodity[commodity].append((row, cls._stage(row.get("TYPE") or "")))
 
-            production = cls._to_tonnes(row.get("PROD_EST_ 2024"), unit)
-            year = 2024
-            if production is None:
-                production = cls._to_tonnes(row.get("PROD_2023"), unit)
-                year = 2023
-            if production is not None:
-                result.production.append(
-                    ProductionRecord(commodity, iso3, name, year, production, "usgs")
-                )
+        for commodity, entries in rows_by_commodity.items():
+            stages = {stage for _, stage in entries}
+            primary = next((s for s in STAGE_PRIORITY if s in stages), "")
+            note = STAGE_LABELS.get(primary, "Production")
+            for row, stage in entries:
+                if primary and stage != primary:
+                    continue  # drop secondary stages for a consistent metric
+                iso3, name = cls._resolve_country(row.get("COUNTRY") or "")
+                if iso3 is None:
+                    continue
+                unit = (row.get("UNIT_MEAS") or "").strip().lower()
 
-            reserves = cls._to_tonnes(row.get("RESERVES_2024"), unit)
-            if reserves is not None:
-                result.reserves.append(
-                    ReserveRecord(commodity, iso3, name, 2024, reserves, "usgs")
-                )
+                production = cls._to_tonnes(row.get("PROD_EST_ 2024"), unit)
+                year = 2024
+                if production is None:
+                    production = cls._to_tonnes(row.get("PROD_2023"), unit)
+                    year = 2023
+                if production is not None:
+                    result.production.append(
+                        ProductionRecord(
+                            commodity, iso3, name, year, production, "usgs", note=note
+                        )
+                    )
+
+                reserves = cls._to_tonnes(row.get("RESERVES_2024"), unit)
+                if reserves is not None:
+                    result.reserves.append(
+                        ReserveRecord(commodity, iso3, name, 2024, reserves, "usgs")
+                    )
         return result
+
+    @staticmethod
+    def _stage(type_str: str) -> str:
+        """Map a USGS TYPE label to a coarse production stage (mine/smelter/...)."""
+        lowered = type_str.lower()
+        return next((s for s in STAGE_PRIORITY if s in lowered), "")
 
     @staticmethod
     def _to_tonnes(raw: str | None, unit: str) -> Decimal | None:

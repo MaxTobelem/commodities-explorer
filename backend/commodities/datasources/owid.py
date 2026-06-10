@@ -79,11 +79,14 @@ class OwidProvider(EnrichmentProvider):
             if not cfg:
                 continue
             owid_slug, column, unit = cfg
+            note = "Production d'énergie" if unit == "TWh" else "Production agricole"
             if owid_slug not in cache:
                 cache[owid_slug] = self._latest_by_country(owid_slug, column)
             for iso3, name, year, value in cache[owid_slug]:
                 result.production.append(
-                    ProductionRecord(commodity, iso3, name, year, value, "owid", unit=unit)
+                    ProductionRecord(
+                        commodity, iso3, name, year, value, "owid", unit=unit, note=note
+                    )
                 )
         return result
 

@@ -86,9 +86,12 @@ export function CountryDetail() {
                     key={p.commodity.slug}
                     className="flex items-center justify-between gap-3 text-sm"
                   >
-                    <Link to={`/commodity/${p.commodity.slug}`} className="font-medium hover:underline">
-                      {p.commodity.name}
-                    </Link>
+                    <div>
+                      <Link to={`/commodity/${p.commodity.slug}`} className="font-medium hover:underline">
+                        {p.commodity.name}
+                      </Link>
+                      {p.note && <div className="text-xs text-muted-foreground">{p.note}</div>}
+                    </div>
                     <span className="tabular-nums text-muted-foreground">
                       {formatQuantity(p.production_t, p.unit)}
                     </span>

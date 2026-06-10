@@ -71,6 +71,7 @@ class ProductionRecord:
     production_t: Decimal
     source: str
     unit: str = "t"
+    note: str = ""  # human basis, e.g. "Production minière" / "Production d'énergie"
 
 
 @dataclass(frozen=True)

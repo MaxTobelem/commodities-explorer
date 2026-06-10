@@ -28,6 +28,14 @@ const RANGES = [
   { key: "all", label: "Max", days: 0 },
 ] as const
 
+const SOURCE_LABELS: Record<string, string> = {
+  usgs: "USGS",
+  usgs_price: "USGS",
+  owid: "Our World in Data",
+  worldbank: "World Bank",
+  commodities_api: "Commodities-API",
+}
+
 export function CommodityDetail() {
   const { slug = "" } = useParams()
   const [currency, setCurrency] = useState<Currency>("usd")
@@ -83,6 +91,18 @@ export function CommodityDetail() {
     .slice(0, 8)
     .map((d) => ({ label: d.name, value: d.value, href: `/country/${d.iso3}` }))
   const geoUnit = geo === "production" ? (production.data?.[0]?.unit ?? "t") : "t"
+  const geoData = geo === "production" ? (production.data ?? []) : (reserves.data ?? [])
+  const geoYear = Math.max(0, ...geoData.map((r) => r.year))
+  const geoBasis =
+    geo === "production" ? (production.data?.[0]?.note ?? "Production") : "Réserves prouvées"
+  const geoSource = geoData[0]?.source
+  const geoCaption = [
+    geoBasis,
+    geoYear > 0 ? String(geoYear) : "",
+    geoSource ? SOURCE_LABELS[geoSource] : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
   const sectorRows: RankItem[] = (usages.data ?? [])
     .filter((u) => u.share_percent !== null)
@@ -155,6 +175,9 @@ export function CommodityDetail() {
             />
           </CardHeader>
           <CardContent>
+            {geoMap.length > 0 && (
+              <p className="mb-3 text-xs text-muted-foreground">{geoCaption}</p>
+            )}
             <Choropleth data={geoMap} format={(n) => formatQuantity(n, geoUnit)} />
             <div className="mt-4">
               <RankBar items={geoRows} format={(n) => formatQuantity(n, geoUnit)} />

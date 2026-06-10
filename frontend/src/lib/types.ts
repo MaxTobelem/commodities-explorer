@@ -74,6 +74,7 @@ export interface Production {
   year: number
   production_t: string
   unit: string
+  note: string
   source: string
 }
 

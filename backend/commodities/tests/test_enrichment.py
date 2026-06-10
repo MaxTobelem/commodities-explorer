@@ -198,6 +198,28 @@ def test_usgs_parses_world_data():
     reserves = {(r.commodity.slug, r.country_iso3): r for r in res.reserves}
     assert reserves[("cobalt", "COD")].reserves_t == Decimal("6000000.00")
     assert ("aluminium", "CHN") not in reserves  # aluminium reserves are reported as bauxite
+    assert all(r.note == "Production minière" for r in res.production if r.commodity.slug == "cobalt")
+
+
+USGS_STAGE_SAMPLE = (
+    "SOURCE,COMMODITY,COUNTRY,TYPE,UNIT_MEAS,PROD_2023,PROD_EST_ 2024,PROD_NOTES,"
+    "CAP_2023,CAP_EST_ 2024,CAP_NOTES,RESERVES_2024,RESERVE_NOTES\n"
+    'MCS2025,Copper,Chile,"Mine production, recoverable",thousand metric tons,5000,5300,,,,,190000,\n'
+    'MCS2025,Copper,China,"Mine production, recoverable",thousand metric tons,1700,1800,,,,,41000,\n'
+    'MCS2025,Copper,China,"Refinery production",thousand metric tons,12000,12500,,,,,,\n'
+)
+
+
+def test_usgs_keeps_primary_stage_and_labels_it():
+    copper = Commodity.objects.create(name="Cuivre", slug="cuivre", price_symbol="Copper")
+
+    res = UsgsProvider.parse_world_data(USGS_STAGE_SAMPLE, {"Copper": copper})
+
+    by_iso = {r.country_iso3: r for r in res.production}
+    # Only the primary stage (mine) is kept; the 12.5 Mt refinery row is dropped.
+    assert set(by_iso) == {"CHL", "CHN"}
+    assert by_iso["CHN"].production_t == Decimal("1800000.00")  # mine, not refinery
+    assert all(r.note == "Production minière" for r in res.production)
 
 
 @responses.activate
