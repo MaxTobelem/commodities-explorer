@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatDate, formatQuantity } from "@/lib/format"
+import { sourceInfo } from "@/lib/sources"
 import type {
   CommodityEvent,
   Composition,
@@ -75,6 +76,7 @@ export function CountryDetail() {
                 .map((p) => (
                   <li
                     key={p.commodity.slug}
+                    title={`Source : ${sourceInfo(p.source).full}`}
                     className="flex items-center justify-between gap-3 text-sm"
                   >
                     <div>
@@ -101,6 +103,7 @@ export function CountryDetail() {
                 .map((r) => (
                   <li
                     key={r.commodity.slug}
+                    title={`Source : ${sourceInfo(r.source).full}`}
                     className="flex items-center justify-between gap-3 text-sm"
                   >
                     <Link to={`/commodity/${r.commodity.slug}`} className="font-medium hover:underline">

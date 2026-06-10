@@ -6,6 +6,7 @@ import { Link, useParams } from "react-router-dom"
 import { Choropleth, type MapDatum } from "@/components/Choropleth"
 import { PriceChart } from "@/components/PriceChart"
 import { RankBar, type RankItem } from "@/components/RankBar"
+import { SourceTag } from "@/components/SourceTag"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,14 +28,6 @@ const RANGES = [
   { key: "1y", label: "1A", days: 365 },
   { key: "all", label: "Max", days: 0 },
 ] as const
-
-const SOURCE_LABELS: Record<string, string> = {
-  usgs: "USGS",
-  usgs_price: "USGS",
-  owid: "Our World in Data",
-  worldbank: "World Bank",
-  commodities_api: "Commodities-API",
-}
 
 export function CommodityDetail() {
   const { slug = "" } = useParams()
@@ -82,6 +75,7 @@ export function CommodityDetail() {
     limit.setDate(limit.getDate() - cutoff)
     return new Date(p.date) >= limit
   })
+  const priceSource = prices.data?.[0]?.source  // latest quote (API ordered by -date)
 
   const geoMap: MapDatum[] =
     geo === "production"
@@ -99,13 +93,6 @@ export function CommodityDetail() {
   const geoBasis =
     geo === "production" ? (production.data?.[0]?.note ?? "Production") : "Réserves prouvées"
   const geoSource = geoData[0]?.source
-  const geoCaption = [
-    geoBasis,
-    geoYear > 0 ? String(geoYear) : "",
-    geoSource ? SOURCE_LABELS[geoSource] : "",
-  ]
-    .filter(Boolean)
-    .join(" · ")
 
   const sectorRows: RankItem[] = (usages.data ?? [])
     .filter((u) => u.share_percent !== null)
@@ -136,6 +123,9 @@ export function CommodityDetail() {
           </div>
           <div className="text-xs text-muted-foreground">
             {c.price_unit} · {formatDate(c.latest_price_date)}
+          </div>
+          <div className="mt-1 flex justify-end">
+            <SourceTag source={priceSource} />
           </div>
         </div>
       </div>
@@ -179,7 +169,13 @@ export function CommodityDetail() {
           </CardHeader>
           <CardContent>
             {geoMap.length > 0 && (
-              <p className="mb-3 text-xs text-muted-foreground">{geoCaption}</p>
+              <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  {geoBasis}
+                  {geoYear > 0 ? ` · ${geoYear}` : ""}
+                </span>
+                <SourceTag source={geoSource} />
+              </div>
             )}
             <Choropleth data={geoMap} format={(n) => formatQuantity(n, geoUnit)} />
             <div className="mt-4">
@@ -190,8 +186,9 @@ export function CommodityDetail() {
 
         {/* Sectors */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Secteurs d'usage</CardTitle>
+            <SourceTag source={usages.data?.[0]?.source} />
           </CardHeader>
           <CardContent>
             <RankBar items={sectorRows} format={(n) => `${n.toLocaleString("fr-FR")} %`} />
@@ -200,8 +197,9 @@ export function CommodityDetail() {
 
         {/* Products */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Produits du quotidien</CardTitle>
+            <SourceTag source={products.data?.[0]?.source} />
           </CardHeader>
           <CardContent>
             {(products.data ?? []).length === 0 ? (
@@ -223,8 +221,9 @@ export function CommodityDetail() {
 
         {/* Events */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Événements & impacts</CardTitle>
+            <SourceTag source={events.data?.[0]?.source} />
           </CardHeader>
           <CardContent>
             {(events.data ?? []).length === 0 ? (

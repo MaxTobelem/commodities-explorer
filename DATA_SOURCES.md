@@ -20,7 +20,7 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 | Source | Alimente | Commande | Cadence | Clé |
 |---|---|---|---|---|
 | **World Bank** Pink Sheet | Cours mensuels (depuis 1960) + repli quotidien | `backfill_prices` / `update_prices` | mensuelle | non |
-| **Commodities-API** | Cours **quotidiens** (USD + EUR) | `update_prices` | quotidienne | **oui** |
+| **Commodities-API** | Cours frais USD + EUR | `update_prices` | ≤ 3 h (PRO) | **oui** |
 | **USGS** MCS | Production + réserves (métaux) | `enrich_data` | annuelle | non |
 | **Our World in Data** | Production (énergie, agricole) + réserves (pétrole, gaz, charbon) | `enrich_data` | annuelle | non |
 | **GDELT** | Événements / conflits → impacts | `enrich_data` | hebdo / mensuelle | non |
@@ -34,12 +34,14 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 - **Commandes** : `backfill_prices --days 25000` (tout l'historique, une seule fois) ; `update_prices` l'utilise en **repli** quand Commodities-API ne couvre pas une matière.
 - **Maintenance** : l'URL du fichier change chaque année → réglage `WORLD_BANK_XLSX_URL` (env) ou `worldbank.DEFAULT_URL`. La conversion EUR est approximative via `EUR_USD_RATE`.
 
-### 2. Cours quotidiens — Commodities-API (payant, optionnel)
-- **Quoi** : prix quotidiens USD + EUR par ticker (ex. `XAU`, `BRENTOIL`).
+### 2. Cours frais — Commodities-API (payant, optionnel)
+- **Quoi** : prix USD + EUR par ticker (ex. `XAU`, `BRENTOIL`). 22 matières couvertes.
 - **Activer** : `COMMODITIES_API_KEY` dans `.env`. Sans clé → repli mensuel World Bank.
+- **Plan & fréquence** : **PRO** (~500 $/an, 1 000 appels/mois, 10 symboles/requête) → cron **toutes les 3 h** (~729 appels/mois). Pour l'horaire, passer en **PRO PLUS** (~1 000 $/an, 15 symboles/requête) et régler `COMMODITIES_API_MAX_SYMBOLS=15`.
+- **Plafond symboles/requête** : `COMMODITIES_API_MAX_SYMBOLS` (défaut 10) — `update_prices` découpe et fusionne les requêtes automatiquement (1 slot réservé à EUR).
 - **Tickers** : champ `Commodity.api_symbol` (défini dans `catalog.py`, éditable en admin).
-- **Valider / compléter** : `manage.py check_api_symbols` liste les tickers valides / invalides / manquants face à l'API, et les tickers supportés non encore utilisés.
-- **Logique** : `update_prices` interroge Commodities-API pour les matières ayant un `api_symbol`, puis comble les manques avec World Bank → jamais de trou.
+- **Valider / compléter** : `manage.py check_api_symbols` liste les tickers valides / invalides / manquants face à l'API.
+- **Logique** : Commodities-API pour les matières ayant un `api_symbol`, puis World Bank comble les manques → jamais de trou.
 
 ### 3. Production & réserves métaux — USGS (gratuit)
 - **Quoi** : Mineral Commodity Summaries, production + réserves par pays.
@@ -67,10 +69,10 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 ## Cron (production)
 
 ```cron
-# Cours quotidiens (Commodities-API + repli World Bank)
-0 6 * * *   cd /app/backend && python manage.py update_prices
+# Cours toutes les 3 h (Commodities-API plan PRO + repli World Bank)
+0 */3 * * *   cd /app/backend && python manage.py update_prices
 # Enrichissement + curé + pays, 1×/mois (les events GDELT peuvent passer en hebdo)
-0 3 1 * *   cd /app/backend && python manage.py refresh_data --skip update_prices
+0 3 1 * *     cd /app/backend && python manage.py refresh_data --skip update_prices
 ```
 
 À adapter au conteneur — voir [DEPLOY.md](DEPLOY.md).
