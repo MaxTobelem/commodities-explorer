@@ -188,6 +188,10 @@ COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", Tr
 GDELT_REQUEST_DELAY = float(env("GDELT_REQUEST_DELAY", "6"))
 GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "10"))
 
+# USGS (reserves/production) — bump USGS_MCS_ITEM_ID to the new ScienceBase item each year.
+USGS_ENABLED = env_bool("USGS_ENABLED", True)
+USGS_MCS_ITEM_ID = env("USGS_MCS_ITEM_ID", "677eaf95d34e760b392c4970")  # MCS 2025
+
 
 # --- Production hardening (only when DEBUG is off) ---------------------------
 

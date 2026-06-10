@@ -1,78 +1,185 @@
-"""USGS provider — world production / reserves and end-use sectors.
+"""USGS provider — real world production & reserves (Mineral Commodity Summaries).
 
-Source: USGS Mineral Commodity Summaries / Minerals Yearbook (public domain).
+Source: USGS MCS Data Release (public domain). The consolidated *World Data* CSV
+holds production (2023 + 2024-estimate) and reserves (2024) by country for ~77
+commodities, with a `TYPE` column (mine/smelter/refinery/capacity…) and a
+`UNIT_MEAS` column (metric tons / thousand metric tons / kilograms…).
 
-The CSV parser below is the durable, tested part. Wiring the *live* per-commodity
-data-release URLs (and the country-name→ISO3 resolution) is an integration step
-to validate against a real download; until configured via settings
-``USGS_PRODUCTION_CSV_URLS`` (mapping price_symbol → URL), the provider no-ops.
+The CSV lives in a ZIP attached to a ScienceBase item; we resolve the file from
+the item JSON, so the only thing to bump for a new year is ``USGS_MCS_ITEM_ID``.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import zipfile
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
+import pycountry
 import requests
 from django.conf import settings
 
-from .base import EnrichmentProvider, EnrichmentResult, ProductionRecord
+from .base import EnrichmentProvider, EnrichmentResult, ProductionRecord, ReserveRecord
 
 if TYPE_CHECKING:
     from commodities.models import Commodity
 
-# Normalised intermediate columns expected by the parser.
-PRODUCTION_COLUMNS = {"iso3", "country", "year", "production_t"}
+SCIENCEBASE_ITEM = "https://www.sciencebase.gov/catalog/item/{item_id}?format=json"
+USER_AGENT = "Mozilla/5.0 (commodities-explorer research dashboard)"
+
+# Our commodity slug → USGS COMMODITY label (extend via USGS_COMMODITY_NAMES).
+DEFAULT_USGS_NAMES = {"aluminium": "Aluminum", "cobalt": "Cobalt", "or": "Gold"}
+
+# USGS country spellings → (ISO3, display name); pycountry resolves the rest.
+COUNTRY_OVERRIDES: dict[str, tuple[str, str]] = {
+    "congo (kinshasa)": ("COD", "RD Congo"),
+    "congo (brazzaville)": ("COG", "Congo"),
+    "korea, republic of": ("KOR", "Corée du Sud"),
+    "korea, north": ("PRK", "Corée du Nord"),
+    "burma": ("MMR", "Birmanie"),
+    "turkey": ("TUR", "Turquie"),
+    "russia": ("RUS", "Russie"),
+    "bolivia": ("BOL", "Bolivie"),
+    "iran": ("IRN", "Iran"),
+    "tanzania": ("TZA", "Tanzanie"),
+    "venezuela": ("VEN", "Venezuela"),
+    "vietnam": ("VNM", "Vietnam"),
+    "laos": ("LAO", "Laos"),
+    "cote d'ivoire": ("CIV", "Côte d'Ivoire"),
+    "côte d'ivoire": ("CIV", "Côte d'Ivoire"),
+    "the bahamas": ("BHS", "Bahamas"),
+    "united states": ("USA", "États-Unis"),
+}
+# Rows whose COUNTRY contains one of these are aggregates, not a single country.
+SKIP_TOKENS = ("world", "other countr", "total", " and ", "european", "unspecified")
 
 
 class UsgsProvider(EnrichmentProvider):
     key = "usgs"
 
     @property
-    def production_csv_urls(self) -> dict[str, str]:
-        return getattr(settings, "USGS_PRODUCTION_CSV_URLS", {})
+    def enabled(self) -> bool:
+        return getattr(settings, "USGS_ENABLED", True)
+
+    @property
+    def item_id(self) -> str:
+        return getattr(settings, "USGS_MCS_ITEM_ID", "677eaf95d34e760b392c4970")  # MCS 2025
 
     @property
     def timeout(self) -> int:
-        return getattr(settings, "USGS_TIMEOUT", 30)
+        return getattr(settings, "USGS_TIMEOUT", 60)
+
+    @property
+    def commodity_names(self) -> dict[str, str]:
+        return {**DEFAULT_USGS_NAMES, **getattr(settings, "USGS_COMMODITY_NAMES", {})}
 
     def fetch(self, commodities: list[Commodity]) -> EnrichmentResult:
+        if not self.enabled:
+            return EnrichmentResult()
+        names = self.commodity_names
+        wanted = {
+            (names.get(c.slug) or names.get(c.price_symbol) or c.name): c for c in commodities
+        }
+        if not wanted:
+            return EnrichmentResult()
+        csv_text = self._download_world_csv()
+        if not csv_text:
+            return EnrichmentResult()
+        return self.parse_world_data(csv_text, wanted)
+
+    # -- internals -----------------------------------------------------------
+
+    def _download_world_csv(self) -> str | None:
+        headers = {"User-Agent": USER_AGENT}
+        item = requests.get(
+            SCIENCEBASE_ITEM.format(item_id=self.item_id), headers=headers, timeout=self.timeout
+        )
+        item.raise_for_status()
+        files = item.json().get("files", []) or []
+        url = next(
+            (f["downloadUri"] for f in files if str(f.get("name", "")).startswith("World_Data")),
+            None,
+        )
+        if not url:
+            return None
+        archive = requests.get(url, headers=headers, timeout=self.timeout)
+        archive.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(archive.content)) as zf:
+            csv_name = next((n for n in zf.namelist() if n.lower().endswith(".csv")), None)
+            if not csv_name:
+                return None
+            return zf.read(csv_name).decode("utf-8-sig")
+
+    @classmethod
+    def parse_world_data(
+        cls, csv_text: str, wanted: dict[str, Commodity]
+    ) -> EnrichmentResult:
         result = EnrichmentResult()
-        urls = self.production_csv_urls
-        for commodity in commodities:
-            url = urls.get(commodity.price_symbol) or urls.get(commodity.slug)
-            if not url:
-                continue  # not wired yet — no-op
-            response = requests.get(url, timeout=self.timeout)
-            response.raise_for_status()
-            result.production += self.parse_production_csv(response.text, commodity)
+        reader = csv.DictReader(io.StringIO(csv_text))
+        for row in reader:
+            commodity = wanted.get((row.get("COMMODITY") or "").strip())
+            if commodity is None or "production" not in (row.get("TYPE") or "").lower():
+                continue
+            iso3, name = cls._resolve_country(row.get("COUNTRY") or "")
+            if iso3 is None:
+                continue
+            unit = (row.get("UNIT_MEAS") or "").strip().lower()
+
+            production = cls._to_tonnes(row.get("PROD_EST_ 2024"), unit)
+            year = 2024
+            if production is None:
+                production = cls._to_tonnes(row.get("PROD_2023"), unit)
+                year = 2023
+            if production is not None:
+                result.production.append(
+                    ProductionRecord(commodity, iso3, name, year, production, "usgs")
+                )
+
+            reserves = cls._to_tonnes(row.get("RESERVES_2024"), unit)
+            if reserves is not None:
+                result.reserves.append(
+                    ReserveRecord(commodity, iso3, name, 2024, reserves, "usgs")
+                )
         return result
 
     @staticmethod
-    def parse_production_csv(text: str, commodity: Commodity) -> list[ProductionRecord]:
-        """Parse a normalised world-production CSV (iso3,country,year,production_t)."""
-        reader = csv.DictReader(io.StringIO(text))
-        records: list[ProductionRecord] = []
-        for row in reader:
+    def _to_tonnes(raw: str | None, unit: str) -> Decimal | None:
+        if raw is None:
+            return None
+        text = str(raw).replace(",", "").strip()
+        if not text or text in {"—", "NA", "W", "XX"}:
+            return None
+        try:
+            value = Decimal(text)
+        except InvalidOperation:
+            return None
+        if "thousand" in unit:
+            factor = Decimal(1000)
+        elif "million" in unit:
+            factor = Decimal(1_000_000)
+        elif "kilogram" in unit:
+            factor = Decimal("0.001")
+        else:
+            factor = Decimal(1)
+        return (value * factor).quantize(Decimal("0.01"))
+
+    @staticmethod
+    def _resolve_country(raw: str) -> tuple[str | None, str]:
+        key = raw.strip().lower()
+        if not key or any(token in key for token in SKIP_TOKENS):
+            return None, raw
+        if key in COUNTRY_OVERRIDES:
+            return COUNTRY_OVERRIDES[key]
+        try:
+            country = pycountry.countries.lookup(raw.strip())
+        except LookupError:
             try:
-                value = Decimal(str(row["production_t"]).replace(",", "").strip())
-                year = int(row["year"])
-            except (KeyError, ValueError, InvalidOperation):
-                continue
-            iso3 = (row.get("iso3") or "").strip().upper()
-            name = (row.get("country") or "").strip()
-            if not iso3 or not name:
-                continue
-            records.append(
-                ProductionRecord(
-                    commodity=commodity,
-                    country_iso3=iso3,
-                    country_name=name,
-                    year=year,
-                    production_t=value,
-                    source="usgs",
-                )
-            )
-        return records
+                matches = pycountry.countries.search_fuzzy(raw.strip())
+            except LookupError:
+                return None, raw
+            country = matches[0] if matches else None
+        if country is None:
+            return None, raw
+        return country.alpha_3, getattr(country, "common_name", country.name)

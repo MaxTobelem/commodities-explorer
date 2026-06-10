@@ -168,13 +168,32 @@ def test_gdelt_handles_rate_limit_gracefully():
     assert result.impacts == []  # no crash, no bogus impact
 
 
-def test_usgs_parses_production_csv():
+USGS_SAMPLE = (
+    "SOURCE,COMMODITY,COUNTRY,TYPE,UNIT_MEAS,PROD_2023,PROD_EST_ 2024,PROD_NOTES,"
+    "CAP_2023,CAP_EST_ 2024,CAP_NOTES,RESERVES_2024,RESERVE_NOTES\n"
+    'MCS2025,Cobalt,Congo (Kinshasa),"Mine production, cobalt content",metric tons,210000,220000,,,,,6000000,\n'
+    'MCS2025,Cobalt,Canada ,"Mine production, cobalt content",metric tons,4300,4500,,,,,220000,\n'
+    'MCS2025,Cobalt,World total (rounded),"Mine production",metric tons,,240000,,,,,11000000,\n'
+    'MCS2025,Aluminum,China,"Smelter production, aluminum",thousand metric tons,41000,43000,,,,,,\n'
+    'MCS2025,Aluminum,Other Countries,"Smelter production, aluminum",thousand metric tons,,5000,,,,,,\n'
+)
+
+
+def test_usgs_parses_world_data():
     cobalt = make_cobalt()
-    csv_text = "iso3,country,year,production_t\nCOD,RD Congo,2024,130000\nAUS,Australie,2024,5900\n"
+    alu = Commodity.objects.create(name="Aluminium", slug="aluminium", price_symbol="ALU")
+    wanted = {"Cobalt": cobalt, "Aluminum": alu}
 
-    records = UsgsProvider.parse_production_csv(csv_text, cobalt)
+    res = UsgsProvider.parse_world_data(USGS_SAMPLE, wanted)
 
-    assert len(records) == 2
-    assert records[0].country_iso3 == "COD"
-    assert records[0].production_t == Decimal("130000")
-    assert records[0].source == "usgs"
+    prod = {(r.commodity.slug, r.country_iso3): r for r in res.production}
+    assert prod[("cobalt", "COD")].production_t == Decimal("220000.00")  # Congo (Kinshasa) → COD
+    assert prod[("cobalt", "COD")].year == 2024
+    assert prod[("cobalt", "CAN")].production_t == Decimal("4500.00")  # "Canada " (trailing space)
+    assert prod[("aluminium", "CHN")].production_t == Decimal("43000000.00")  # thousand t → ×1000
+    assert len(res.production) == 3  # aggregates (World total / Other Countries) skipped
+    assert all(r.country_iso3 for r in res.production)
+
+    reserves = {(r.commodity.slug, r.country_iso3): r for r in res.reserves}
+    assert reserves[("cobalt", "COD")].reserves_t == Decimal("6000000.00")
+    assert ("aluminium", "CHN") not in reserves  # aluminium reserves are reported as bauxite
