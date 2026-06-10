@@ -68,6 +68,20 @@ def test_provider_skips_uncovered_symbol(settings):
 
 
 @responses.activate
+def test_provider_chunks_requests_by_symbol_cap(settings):
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.COMMODITIES_API_MAX_SYMBOLS = 2  # 1 commodity + EUR per request
+    mock_latest({"ALU": 0.0004, "XAU": 0.0005, "EUR": 0.9})
+    alu = make_commodity("Aluminium", "ALU")
+    au = make_commodity("Or", "XAU")
+
+    results = {p.commodity.symbol: p for p in CommoditiesApiProvider().fetch_latest([alu, au])}
+
+    assert set(results) == {"ALU", "XAU"}
+    assert len(responses.calls) == 2  # two symbols split into two capped requests
+
+
+@responses.activate
 def test_provider_without_eur_leaves_price_eur_none(settings):
     settings.COMMODITIES_API_KEY = "test-key"
     mock_latest({"ALU": 0.0004})

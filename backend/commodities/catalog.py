@@ -35,7 +35,7 @@ COMMODITY_CATALOG = [
     ("Café (Arabica)", "CAFE", _A, "USD/kg", "worldbank", "Coffee, Arabica", "COFFEE"),
     ("Thé", "THE", _A, "USD/kg", "worldbank", "Tea, avg 3 auctions", ""),
     # Agricole — oléagineux
-    ("Huile de palme", "PALME", _A, "USD/t", "worldbank", "Palm oil", "PALM-OIL"),
+    ("Huile de palme", "PALME", _A, "USD/t", "worldbank", "Palm oil", ""),
     ("Soja", "SOJA", _A, "USD/t", "worldbank", "Soybeans", "SOYBEAN"),
     ("Huile de soja", "H-SOJA", _A, "USD/t", "worldbank", "Soybean oil", ""),
     ("Huile de tournesol", "TOURNESOL", _A, "USD/t", "worldbank", "Sunflower oil", ""),
@@ -61,18 +61,18 @@ COMMODITY_CATALOG = [
     ("Chlorure de potassium", "POTASSE", _F, "USD/t", "worldbank", "Potassium chloride", ""),
     # Métaux de base
     ("Aluminium", "ALU", _B, "USD/t", "worldbank", "Aluminum", "ALU"),
-    ("Cuivre", "CUIVRE", _B, "USD/t", "worldbank", "Copper", "COPPER"),
-    ("Minerai de fer", "FER", _B, "USD/dmtu", "worldbank", "Iron ore, cfr spot", ""),
+    ("Cuivre", "CUIVRE", _B, "USD/t", "worldbank", "Copper", "XCU"),
+    ("Minerai de fer", "FER", _B, "USD/dmtu", "worldbank", "Iron ore, cfr spot", "IRON"),
     ("Plomb", "PLOMB", _B, "USD/t", "worldbank", "Lead", "LEAD"),
     ("Étain", "ETAIN", _B, "USD/t", "worldbank", "Tin", "TIN"),
-    ("Nickel", "NICKEL", _B, "USD/t", "worldbank", "Nickel", "NICKEL"),
-    ("Zinc", "ZINC", _B, "USD/t", "worldbank", "Zinc", "ZINC"),
+    ("Nickel", "NICKEL", _B, "USD/t", "worldbank", "Nickel", "NI"),
+    ("Zinc", "ZINC", _B, "USD/t", "worldbank", "Zinc", "LME-ZNC"),
     # Métaux précieux
     ("Or", "XAU", _P, "USD/ozt", "worldbank", "Gold", "XAU"),
     ("Platine", "PLATINE", _P, "USD/ozt", "worldbank", "Platinum", "XPT"),
     ("Argent", "ARGENT", _P, "USD/ozt", "worldbank", "Silver", "XAG"),
     # Batteries — cobalt (prix historique annuel USGS, absent du World Bank)
-    ("Cobalt", "LCO", _BAT, "USD/t", "usgs_price", "Cobalt", "COBALT"),
+    ("Cobalt", "LCO", _BAT, "USD/t", "usgs_price", "Cobalt", "LCO"),
 ]
 
 

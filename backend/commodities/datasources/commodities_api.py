@@ -51,6 +51,11 @@ class CommoditiesApiProvider(PriceProvider):
     def timeout(self) -> int:
         return getattr(settings, "COMMODITIES_API_TIMEOUT", 20)
 
+    @property
+    def max_symbols(self) -> int:
+        # Plan-dependent cap on symbols per request (PRO=10, PRO PLUS=15…).
+        return getattr(settings, "COMMODITIES_API_MAX_SYMBOLS", 10)
+
     # -- public --------------------------------------------------------------
 
     def fetch_latest(self, commodities: list[Commodity]) -> list[PriceData]:
@@ -61,9 +66,19 @@ class CommoditiesApiProvider(PriceProvider):
         if not symbol_to_commodity:
             return []
 
-        payload = self._request(sorted(symbol_to_commodity))
-        rates = self._extract_rates(payload)
-        quote_date = self._extract_date(payload)
+        # The upstream caps symbols per request (plan-dependent); chunk and merge.
+        # One slot is reserved for EUR (appended by _request) for the conversion.
+        symbols = sorted(symbol_to_commodity)
+        per_request = max(1, self.max_symbols - 1)
+        rates: dict[str, Any] = {}
+        quote_date: dt.date | None = None
+        for start in range(0, len(symbols), per_request):
+            payload = self._request(symbols[start : start + per_request])
+            rates.update(self._extract_rates(payload))
+            if quote_date is None:
+                quote_date = self._extract_date(payload)
+        if quote_date is None:
+            quote_date = dt.date.today()
         eur_per_usd = self._to_decimal(rates.get("EUR"))
 
         results: list[PriceData] = []

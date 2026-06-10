@@ -111,6 +111,7 @@ export interface Impact {
   direction_display: string
   magnitude: string | null
   description: string
+  source: string
   needs_review: boolean
 }
 

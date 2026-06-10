@@ -137,7 +137,7 @@ class ImpactSerializer(serializers.ModelSerializer):
         model = EventImpact
         fields = [
             "commodity", "event", "direction", "direction_display",
-            "magnitude", "description", "needs_review",
+            "magnitude", "description", "source", "needs_review",
         ]
 
 

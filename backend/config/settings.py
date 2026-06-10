@@ -183,6 +183,9 @@ COMMODITIES_API_KEY = env("COMMODITIES_API_KEY", "")
 COMMODITIES_API_BASE_URL = env("COMMODITIES_API_BASE_URL", "https://api.commodities-api.com/api")
 COMMODITIES_API_TIMEOUT = int(env("COMMODITIES_API_TIMEOUT", "20"))
 COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", True)
+# Symbols-per-request cap (plan-dependent): PRO=10, PRO PLUS=15, ADVANCED=20…
+# update_prices chunks requests accordingly (1 slot reserved for EUR conversion).
+COMMODITIES_API_MAX_SYMBOLS = int(env("COMMODITIES_API_MAX_SYMBOLS", "10"))
 
 # GDELT (events) — pacing for the public rate limit.
 GDELT_REQUEST_DELAY = float(env("GDELT_REQUEST_DELAY", "6"))
