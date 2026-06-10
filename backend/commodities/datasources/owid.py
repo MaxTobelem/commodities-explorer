@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import requests
 from django.conf import settings
 
-from .base import EnrichmentProvider, EnrichmentResult, ProductionRecord
+from .base import EnrichmentProvider, EnrichmentResult, ProductionRecord, ReserveRecord
 
 if TYPE_CHECKING:
     from commodities.models import Commodity
@@ -52,6 +52,16 @@ DEFAULT_OWID = {
     ),
 }
 
+# Proved reserves by country (Energy Institute via OWID). Keyed by price_symbol
+# → (OWID slug, column, unit). Oil/coal in tonnes, gas in cubic metres.
+DEFAULT_OWID_RESERVES = {
+    "Crude oil, Brent": ("oil-proved-reserves", "oil_reserves_t", "t"),
+    "Coal, Australian": ("coal-proved-reserves", "coal_reserves_mt", "t"),
+    "Natural gas, Europe": ("natural-gas-proved-reserves", "gas_reserves_m3", "m³"),
+    "Natural gas, US": ("natural-gas-proved-reserves", "gas_reserves_m3", "m³"),
+    "Liquefied natural gas, Japan": ("natural-gas-proved-reserves", "gas_reserves_m3", "m³"),
+}
+
 
 class OwidProvider(EnrichmentProvider):
     key = "owid"
@@ -68,25 +78,45 @@ class OwidProvider(EnrichmentProvider):
     def mapping(self) -> dict[str, tuple[str, str, str]]:
         return {**DEFAULT_OWID, **getattr(settings, "OWID_PRODUCTION", {})}
 
+    @property
+    def reserves_mapping(self) -> dict[str, tuple[str, str, str]]:
+        return {**DEFAULT_OWID_RESERVES, **getattr(settings, "OWID_RESERVES", {})}
+
     def fetch(self, commodities: list[Commodity]) -> EnrichmentResult:
         if not self.enabled:
             return EnrichmentResult()
         result = EnrichmentResult()
-        mapping = self.mapping
-        cache: dict[str, list[tuple[str, str, int, Decimal]]] = {}
+        cache: dict[tuple[str, str], list[tuple[str, str, int, Decimal]]] = {}
+
+        def rows(slug: str, column: str) -> list[tuple[str, str, int, Decimal]]:
+            key = (slug, column)
+            if key not in cache:
+                cache[key] = self._latest_by_country(slug, column)
+            return cache[key]
+
+        prod_map = self.mapping
         for commodity in commodities:
-            cfg = mapping.get(commodity.price_symbol)
+            cfg = prod_map.get(commodity.price_symbol)
             if not cfg:
                 continue
-            owid_slug, column, unit = cfg
+            slug, column, unit = cfg
             note = "Production d'énergie" if unit == "TWh" else "Production agricole"
-            if owid_slug not in cache:
-                cache[owid_slug] = self._latest_by_country(owid_slug, column)
-            for iso3, name, year, value in cache[owid_slug]:
+            for iso3, name, year, value in rows(slug, column):
                 result.production.append(
                     ProductionRecord(
                         commodity, iso3, name, year, value, "owid", unit=unit, note=note
                     )
+                )
+
+        res_map = self.reserves_mapping
+        for commodity in commodities:
+            cfg = res_map.get(commodity.price_symbol)
+            if not cfg:
+                continue
+            slug, column, unit = cfg
+            for iso3, name, year, value in rows(slug, column):
+                result.reserves.append(
+                    ReserveRecord(commodity, iso3, name, year, value, "owid", unit=unit)
                 )
         return result
 

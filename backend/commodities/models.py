@@ -184,8 +184,9 @@ class CommodityReserve(Sourced):
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="reserves")
     year = models.PositiveIntegerField()
     reserves_t = models.DecimalField(
-        max_digits=22, decimal_places=2, help_text="Réserves en tonnes"
+        max_digits=22, decimal_places=2, help_text="Quantité de réserves"
     )
+    unit = models.CharField(max_length=8, default="t", help_text="Unité (t, m³…)")
 
     class Meta:
         verbose_name = "réserve"

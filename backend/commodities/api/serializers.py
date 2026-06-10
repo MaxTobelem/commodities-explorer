@@ -98,7 +98,7 @@ class ReserveSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CommodityReserve
-        fields = ["commodity", "country", "year", "reserves_t", "source"]
+        fields = ["commodity", "country", "year", "reserves_t", "unit", "source"]
 
 
 class ProductionSerializer(serializers.ModelSerializer):

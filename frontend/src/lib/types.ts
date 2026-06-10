@@ -83,6 +83,7 @@ export interface Reserve {
   country: Country
   year: number
   reserves_t: string
+  unit: string
   source: string
 }
 

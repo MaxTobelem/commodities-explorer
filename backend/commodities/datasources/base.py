@@ -60,6 +60,7 @@ class ReserveRecord:
     year: int
     reserves_t: Decimal
     source: str
+    unit: str = "t"  # "t" for metals/oil/coal, "m³" for gas…
 
 
 @dataclass(frozen=True)

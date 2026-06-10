@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
-import { formatDate, formatQuantity, formatTonnes } from "@/lib/format"
+import { formatDate, formatQuantity } from "@/lib/format"
 import type {
   CommodityEvent,
   Composition,
@@ -38,15 +38,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <CardContent>{children}</CardContent>
     </Card>
   )
-}
-
-function commodityRows(
-  rows: { commodity: { name: string; slug: string } }[],
-  value: (r: never) => number,
-): RankItem[] {
-  return rows
-    .map((r) => ({ label: r.commodity.name, value: value(r as never), href: `/commodity/${r.commodity.slug}` }))
-    .sort((a, b) => b.value - a.value)
 }
 
 export function CountryDetail() {
@@ -101,7 +92,27 @@ export function CountryDetail() {
           )}
         </Section>
         <Section title="Réserves détenues">
-          <RankBar items={commodityRows(reserves.data ?? [], (r: Reserve) => Number(r.reserves_t))} format={formatTonnes} />
+          {(reserves.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune réserve référencée.</p>
+          ) : (
+            <ul className="space-y-2">
+              {[...(reserves.data ?? [])]
+                .sort((a, b) => a.commodity.name.localeCompare(b.commodity.name))
+                .map((r) => (
+                  <li
+                    key={r.commodity.slug}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <Link to={`/commodity/${r.commodity.slug}`} className="font-medium hover:underline">
+                      {r.commodity.name}
+                    </Link>
+                    <span className="tabular-nums text-muted-foreground">
+                      {formatQuantity(r.reserves_t, r.unit)}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
         </Section>
       </div>
     </div>

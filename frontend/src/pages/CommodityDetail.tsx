@@ -90,7 +90,10 @@ export function CommodityDetail() {
   const geoRows: RankItem[] = geoMap
     .slice(0, 8)
     .map((d) => ({ label: d.name, value: d.value, href: `/country/${d.iso3}` }))
-  const geoUnit = geo === "production" ? (production.data?.[0]?.unit ?? "t") : "t"
+  const geoUnit =
+    geo === "production"
+      ? (production.data?.[0]?.unit ?? "t")
+      : (reserves.data?.[0]?.unit ?? "t")
   const geoData = geo === "production" ? (production.data ?? []) : (reserves.data ?? [])
   const geoYear = Math.max(0, ...geoData.map((r) => r.year))
   const geoBasis =

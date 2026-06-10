@@ -211,7 +211,7 @@ def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
             commodity=rec.commodity,
             country=country_for(rec.country_iso3, rec.country_name),
             year=rec.year,
-            defaults={"reserves_t": rec.reserves_t, "source": rec.source},
+            defaults={"reserves_t": rec.reserves_t, "unit": rec.unit, "source": rec.source},
         )
         counts["reserves"] += 1
 

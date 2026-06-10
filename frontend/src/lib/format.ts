@@ -23,6 +23,17 @@ export function formatQuantity(value: string | number | null, unit: string): str
   if (value === null || value === undefined) return "—"
   const num = typeof value === "string" ? Number(value) : value
   if (Number.isNaN(num)) return "—"
+  // Compact SI scaling (k/M/G/T…) for very large quantities, e.g. gas reserves in m³.
+  if (Math.abs(num) >= 1_000_000) {
+    const prefixes = ["", "k", "M", "G", "T", "P"]
+    let n = num
+    let i = 0
+    while (Math.abs(n) >= 1000 && i < prefixes.length - 1) {
+      n /= 1000
+      i += 1
+    }
+    return `${n.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} ${prefixes[i]}${unit}`
+  }
   return `${num.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} ${unit}`
 }
 

@@ -243,3 +243,35 @@ def test_owid_production_latest_year_and_unit():
     assert by["CHN"].year == 2024  # latest year per country
     assert by["CHN"].production_t == Decimal("140000000.00")
     assert by["CHN"].unit == "t"
+
+
+@responses.activate
+def test_owid_reserves_for_energy_with_unit():
+    oil = Commodity.objects.create(name="Pétrole", slug="petrole", price_symbol="Crude oil, Brent")
+    # Oil is in both OWID production and reserves maps → mock both endpoints.
+    responses.add(
+        responses.GET,
+        OWID_URL.format(slug="oil-production-by-country").split("?")[0],
+        body="entity,code,year,oil_production__twh\nUnited States,USA,2020,9000\n",
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        OWID_URL.format(slug="oil-proved-reserves").split("?")[0],
+        body=(
+            "entity,code,year,oil_reserves_t\n"
+            "Saudi Arabia,SAU,2019,40000000000\n"
+            "Saudi Arabia,SAU,2020,41000000000\n"
+            "World,OWID_WRL,2020,236000000000\n"  # aggregate, skipped
+        ),
+        status=200,
+    )
+
+    res = OwidProvider().fetch([oil])
+
+    assert len(res.reserves) == 1  # SAU latest year; World aggregate skipped
+    reserve = res.reserves[0]
+    assert reserve.country_iso3 == "SAU"
+    assert reserve.year == 2020
+    assert reserve.reserves_t == Decimal("41000000000.00")
+    assert reserve.unit == "t"
