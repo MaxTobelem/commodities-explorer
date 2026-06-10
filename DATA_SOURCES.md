@@ -1,0 +1,76 @@
+# Sources de données & mise à jour
+
+Toutes les sources sont **gratuites** sauf **Commodities-API** (optionnelle, pour
+les cours *quotidiens*). Sans clé Commodities-API, l'app tourne entièrement sur
+des sources gratuites (cours mensuels World Bank).
+
+## Tout rafraîchir en une commande
+
+```bash
+cd backend
+uv run python manage.py refresh_data                      # catalogue → cours → enrichissement → curé → pays
+uv run python manage.py refresh_data --skip enrich_data   # ex. sans l'enrichissement (lent)
+```
+
+Chaque étape est isolée (un échec n'interrompt pas les autres) et journalisée
+dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
+
+## Récapitulatif
+
+| Source | Alimente | Commande | Cadence | Clé |
+|---|---|---|---|---|
+| **World Bank** Pink Sheet | Cours mensuels (depuis 1960) + repli quotidien | `backfill_prices` / `update_prices` | mensuelle | non |
+| **Commodities-API** | Cours **quotidiens** (USD + EUR) | `update_prices` | quotidienne | **oui** |
+| **USGS** MCS | Production + réserves (métaux) | `enrich_data` | annuelle | non |
+| **Our World in Data** | Production (énergie, agricole) + réserves (pétrole, gaz, charbon) | `enrich_data` | annuelle | non |
+| **GDELT** | Événements / conflits → impacts | `enrich_data` | hebdo / mensuelle | non |
+| **Curé** (USGS, AIE, FAO…) | Secteurs d'usage % + produits | `import_curated` | manuelle | non |
+| **CLDR / Babel** | Noms de pays (français) | `relabel_countries` | — | non |
+
+## Détails & maintenance par source
+
+### 1. Cours — World Bank (gratuit, mensuel, historique)
+- **Quoi** : « Pink Sheet », 1 fichier Excel, prix mensuels USD depuis 1960.
+- **Commandes** : `backfill_prices --days 25000` (tout l'historique, une seule fois) ; `update_prices` l'utilise en **repli** quand Commodities-API ne couvre pas une matière.
+- **Maintenance** : l'URL du fichier change chaque année → réglage `WORLD_BANK_XLSX_URL` (env) ou `worldbank.DEFAULT_URL`. La conversion EUR est approximative via `EUR_USD_RATE`.
+
+### 2. Cours quotidiens — Commodities-API (payant, optionnel)
+- **Quoi** : prix quotidiens USD + EUR par ticker (ex. `XAU`, `BRENTOIL`).
+- **Activer** : `COMMODITIES_API_KEY` dans `.env`. Sans clé → repli mensuel World Bank.
+- **Tickers** : champ `Commodity.api_symbol` (défini dans `catalog.py`, éditable en admin).
+- **Valider / compléter** : `manage.py check_api_symbols` liste les tickers valides / invalides / manquants face à l'API, et les tickers supportés non encore utilisés.
+- **Logique** : `update_prices` interroge Commodities-API pour les matières ayant un `api_symbol`, puis comble les manques avec World Bank → jamais de trou.
+
+### 3. Production & réserves métaux — USGS (gratuit)
+- **Quoi** : Mineral Commodity Summaries, production + réserves par pays.
+- **Commande** : `enrich_data`.
+- **Maintenance** : nouvelle édition annuelle → régler `USGS_MCS_ITEM_ID` (id ScienceBase). Le mapping matière → nom USGS est dans `usgs.py` (`DEFAULT_USGS_NAMES`). Un seul **stade** de production est conservé par matière (minière > fonderie > raffinage) et étiqueté dans `note`.
+
+### 4. Production & réserves énergie/agricole — Our World in Data (gratuit)
+- **Quoi** : CSV par matière avec codes ISO3. Production (énergie en TWh, agricole en tonnes) + réserves prouvées (pétrole & charbon en t, gaz en m³).
+- **Commande** : `enrich_data`.
+- **Maintenance** : mappings `DEFAULT_OWID` (production) et `DEFAULT_OWID_RESERVES` (réserves) dans `owid.py` ; clés = label World Bank (`price_symbol`).
+
+### 5. Événements — GDELT (gratuit, débit limité)
+- **Quoi** : articles / événements mondiaux → impacts sur les matières via leurs pays producteurs.
+- **Commande** : `enrich_data`. **Limité depuis une IP datacenter** (HTTP 429) ; fonctionne depuis le VPS. Rythme réglable via `GDELT_REQUEST_DELAY`.
+
+### 6. Secteurs & produits — dataset curé (gratuit)
+- **Quoi** : parts d'usage par secteur (%) + produits du quotidien pour 22 matières, sourcés (USGS, AIE, FAO, instituts métiers).
+- **Commande** : `import_curated` — autoritatif (*delete-then-insert* par matière), `source="curated"`, éditable en admin.
+- **Étendre** : ajouter une entrée au dict `CURATED` dans `import_curated.py` (slug → usages / produits).
+
+### 7. Noms de pays — CLDR / Babel (gratuit)
+- **Quoi** : libellés français uniques par ISO3 (`commodities/countries.py`).
+- **Commande** : `relabel_countries` (normalise l'existant). Les nouveaux imports posent déjà le nom français.
+
+## Cron (production)
+
+```cron
+# Cours quotidiens (Commodities-API + repli World Bank)
+0 6 * * *   cd /app/backend && python manage.py update_prices
+# Enrichissement + curé + pays, 1×/mois (les events GDELT peuvent passer en hebdo)
+0 3 1 * *   cd /app/backend && python manage.py refresh_data --skip update_prices
+```
+
+À adapter au conteneur — voir [DEPLOY.md](DEPLOY.md).

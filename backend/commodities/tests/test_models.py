@@ -144,3 +144,16 @@ def test_import_curated_sets_authoritative_usages():
     assert usages["Batteries"].share_percent == Decimal("60.00")
     assert all(u.source == "curated" for u in cobalt.usages.all())  # delete-then-insert
     assert cobalt.compositions.filter(product__slug="smartphone").exists()
+
+
+def test_refresh_data_orchestrates_offline_steps():
+    # Skip the network steps; the rest (catalogue, curated, relabel) run offline.
+    call_command("refresh_data", "--skip", "update_prices", "enrich_data")
+
+    run = ImportRun.objects.filter(kind=ImportRun.Kind.FULL).first()
+    assert run is not None
+    assert run.status == ImportRun.Status.SUCCESS
+    assert "import_commodities" in run.message and "import_curated" in run.message
+    # Catalogue + curated actually ran.
+    assert Commodity.objects.count() > 3
+    assert CommodityUsage.objects.filter(source="curated").exists()

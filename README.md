@@ -8,7 +8,7 @@ cours USD/EUR, pays détenteurs/producteurs, secteurs d'usage, produits du quoti
 
 - **Backend** : Django 5.2 LTS + Django REST Framework, django-filter, django-unfold (admin), PostgreSQL (SQLite en dev), `uv`.
 - **Frontend** : Vite + React + TypeScript + Tailwind v4 + shadcn/ui, TanStack Query, Recharts, react-router.
-- **Sources de données (gratuites)** : World Bank Pink Sheet (cours mensuels depuis 1960) + USGS (réserves/production + prix annuel cobalt) + dataset curé (secteurs/produits) + GDELT (conflits).
+- **Sources de données** : World Bank Pink Sheet (cours mensuels depuis 1960) + **Commodities-API** (cours quotidiens, optionnel) + USGS (production/réserves métaux) + Our World in Data (production & réserves énergie/agricole) + dataset curé (secteurs/produits) + GDELT (conflits). Détails & maintenance : **[DATA_SOURCES.md](DATA_SOURCES.md)**.
 
 ## Structure
 
@@ -49,6 +49,20 @@ npm run dev    # http://localhost:5173 (proxy /api → http://127.0.0.1:8001)
 Le backend doit tourner en parallèle. Crée un compte (email) via `createsuperuser`
 ou l'admin, puis connecte-toi : saisis ton email → un **code** est envoyé (en dev,
 il s'affiche dans la console du serveur Django) → entre le code.
+
+## Mettre à jour les données
+
+Tout en une commande (catalogue → cours → enrichissement → curé → pays) :
+
+```bash
+cd backend
+uv run python manage.py refresh_data
+```
+
+Pour les **cours quotidiens**, renseigner `COMMODITIES_API_KEY` dans `.env` puis
+valider les tickers avec `uv run python manage.py check_api_symbols`. Sans clé, les
+cours restent mensuels (World Bank). Détail et maintenance de chaque source :
+**[DATA_SOURCES.md](DATA_SOURCES.md)**.
 
 ## Tests
 
