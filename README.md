@@ -28,9 +28,11 @@ cd backend
 uv sync                              # dépendances (Python 3.12)
 cp .env.example .env                 # DATABASE_URL pointe déjà sur le Postgres Docker
 uv run python manage.py migrate
-uv run python manage.py seed         # jeu de données initial (idempotent)
+uv run python manage.py seed            # données de démo (idempotent)
+uv run python manage.py import_curated  # secteurs d'usage % + produits (dataset curé, sourcé, éditable en admin)
+uv run python manage.py enrich_data     # données réelles : réserves/production USGS (+ conflits GDELT) — ~1 min
 uv run python manage.py createsuperuser
-uv run python manage.py runserver    # http://localhost:8000 (admin sur /admin/)
+uv run python manage.py runserver       # http://localhost:8000 (admin sur /admin/)
 ```
 
 ## Démarrage frontend (dev)

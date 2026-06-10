@@ -114,3 +114,14 @@ def test_seed_command_is_idempotent():
     assert cobalt.usages.count() >= 1
     assert cobalt.production.count() >= 1
     assert cobalt.impacts.count() >= 1
+
+
+def test_import_curated_sets_authoritative_usages():
+    call_command("seed")
+    call_command("import_curated")
+    cobalt = Commodity.objects.get(slug="cobalt")
+
+    usages = {u.sector.name: u for u in cobalt.usages.select_related("sector")}
+    assert usages["Batteries"].share_percent == Decimal("60.00")
+    assert all(u.source == "curated" for u in cobalt.usages.all())  # delete-then-insert
+    assert cobalt.compositions.filter(product__slug="smartphone").exists()
