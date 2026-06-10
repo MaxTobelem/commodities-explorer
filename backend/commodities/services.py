@@ -13,6 +13,7 @@ from collections import defaultdict
 from django.db import transaction
 from django.utils.text import slugify
 
+from .countries import french_name
 from .datasources.base import EnrichmentResult
 from .datasources.registry import get_enrichment_providers, get_price_provider
 from .models import (
@@ -187,7 +188,7 @@ def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
     def country_for(iso3: str, name: str) -> Country:
         if iso3 not in country_cache:
             country_cache[iso3], _ = Country.objects.get_or_create(
-                iso3=iso3, defaults={"name": name}
+                iso3=iso3, defaults={"name": french_name(iso3, name)}
             )
         return country_cache[iso3]
 
