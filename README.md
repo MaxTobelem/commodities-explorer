@@ -64,6 +64,12 @@ valider les tickers avec `uv run python manage.py check_api_symbols`. Sans clé,
 cours restent mensuels (World Bank). Détail et maintenance de chaque source :
 **[DATA_SOURCES.md](DATA_SOURCES.md)**.
 
+## Sauvegardes
+
+La base est l'archive (cours accumulés non rejouables au-delà de ~30 j). Sauvegarde
+quotidienne hors-VPS (dump compressé + rclone) avec restauration testée :
+**[BACKUP.md](BACKUP.md)**.
+
 ## Tests
 
 ```bash

@@ -80,11 +80,23 @@ email. Tout autre appareil : **injoignable**.
 
 (Le bouton « Lancer une mise à jour complète » de l'admin reste disponible.)
 
-## 7. Sauvegardes BDD
+## 7. Sauvegardes BDD (hors-VPS)
 
-```cron
-0 3 * * *  cd /home/USER/commodities-explorer && docker compose -f docker-compose.prod.yml exec -T db pg_dump -U commodities commodities | gzip > /home/USER/backups/db-$(date +\%F).sql.gz
+La base **est l'archive** (la série de cours n'est pas rejouable au-delà de ~30 j).
+Sauvegarde quotidienne = **dump compressé + copie HORS-VPS via rclone**, avec rétention et
+restauration testée — détails complets dans **[BACKUP.md](BACKUP.md)**.
+
+Installer rclone une fois, puis planifier le dump quotidien + copie hors-VPS :
+
+```bash
+curl https://rclone.org/install.sh | sudo bash && rclone config   # remote B2 / R2 / Scaleway
 ```
+```cron
+0 4 * * *  cd /opt/declo && BACKUP_RCLONE_REMOTE=b2:declo-backups ./scripts/db_backup.sh >> /var/log/declo-backup.log 2>&1
+```
+
+Restauration sur un VPS neuf :
+`./scripts/db_restore.sh b2:declo-backups/declo-AAAAMMJJ-HHMMSS.dump` (voir BACKUP.md).
 
 ## Mettre à jour l'app
 
