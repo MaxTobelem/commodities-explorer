@@ -165,7 +165,7 @@ def test_backfill_prices_service_creates_history(settings):
 
     assert run.status == ImportRun.Status.SUCCESS
     assert PriceQuote.objects.count() == 2
-    assert "2 cours créés" in run.message
+    assert "2 cours importés" in run.message
 
 
 def _wb_xlsx_bytes() -> bytes:

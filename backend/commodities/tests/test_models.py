@@ -116,6 +116,25 @@ def test_seed_command_is_idempotent():
     assert cobalt.impacts.count() >= 1
 
 
+def test_commodity_catalog_imports_all_categories():
+    from commodities.catalog import COMMODITY_CATALOG, ensure_commodities
+
+    n = ensure_commodities()
+
+    assert n == len(COMMODITY_CATALOG)
+    assert Commodity.objects.count() == len(COMMODITY_CATALOG)
+    assert Commodity.objects.filter(category=Commodity.Category.ENERGY).exists()
+    assert Commodity.objects.filter(category=Commodity.Category.AGRICULTURAL).exists()
+    assert Commodity.objects.filter(category=Commodity.Category.FERTILIZER).exists()
+    # Long World Bank labels are stored as price_symbol
+    brent = Commodity.objects.get(slug="petrole-brut-brent")
+    assert brent.price_symbol == "Crude oil, Brent"
+    assert brent.price_provider == "worldbank"
+    # Idempotent
+    assert ensure_commodities() == len(COMMODITY_CATALOG)
+    assert Commodity.objects.count() == len(COMMODITY_CATALOG)
+
+
 def test_import_curated_sets_authoritative_usages():
     call_command("seed")
     call_command("import_curated")

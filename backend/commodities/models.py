@@ -34,9 +34,12 @@ class Sourced(TimeStamped):
 
 class Commodity(TimeStamped):
     class Category(models.TextChoices):
+        ENERGY = "energy", "Énergie"
         PRECIOUS = "precious", "Métal précieux"
         BASE = "base", "Métal de base / industriel"
         BATTERY = "battery", "Métal pour batteries"
+        AGRICULTURAL = "agricultural", "Agricole"
+        FERTILIZER = "fertilizer", "Engrais"
         OTHER = "other", "Autre"
 
     name = models.CharField(max_length=120, unique=True)
@@ -53,7 +56,7 @@ class Commodity(TimeStamped):
     # Pluggable price source: which provider/symbol to use when fetching prices.
     price_provider = models.CharField(max_length=32, default="commodities_api")
     price_symbol = models.CharField(
-        max_length=24, blank=True, help_text="Symbole côté fournisseur, ex. LCO, ALU, XAU"
+        max_length=64, blank=True, help_text="Symbole/label côté fournisseur (ex. LCO, Crude oil, Brent)"
     )
 
     class Meta:

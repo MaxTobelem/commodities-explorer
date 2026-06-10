@@ -31,6 +31,11 @@ _QUANT = Decimal("0.0001")
 _MONTH_RE = re.compile(r"^(\d{4})M(\d{2})$")
 
 
+def _clean(value: object) -> str:
+    """Normalise a Pink Sheet header: drop footnote '*' and collapse whitespace."""
+    return " ".join(str(value).replace("*", " ").split()) if value else ""
+
+
 class WorldBankProvider(PriceProvider):
     key = "worldbank"
 
@@ -80,7 +85,7 @@ class WorldBankProvider(PriceProvider):
         )
 
     def _load_series(self, wb_names: list[str]) -> dict[str, list[tuple[dt.date, Decimal]]]:
-        wanted = {n for n in wb_names if n}
+        wanted = {_clean(n) for n in wb_names if n}
         if not wanted:
             return {}
         response = requests.get(self.url, timeout=self.timeout)
@@ -89,7 +94,7 @@ class WorldBankProvider(PriceProvider):
         sheet = workbook["Monthly Prices"]
         rows = list(sheet.iter_rows(values_only=True))
         header = rows[4]  # row 5: commodity names
-        cols = {name: idx for idx, name in enumerate(header) if name in wanted}
+        cols = {clean: idx for idx, raw in enumerate(header) if (clean := _clean(raw)) in wanted}
         series: dict[str, list[tuple[dt.date, Decimal]]] = {name: [] for name in cols}
         for row in rows[6:]:
             if not row or not row[0]:

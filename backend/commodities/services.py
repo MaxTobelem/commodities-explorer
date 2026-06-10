@@ -87,24 +87,34 @@ def backfill_prices(days: int = 90) -> ImportRun:
         for commodity in commodities:
             by_provider[commodity.price_provider].append(commodity)
 
-        created = updated = 0
+        to_upsert: list[PriceQuote] = []
         for provider_key, items in by_provider.items():
             provider = get_price_provider(provider_key)
             if provider is None or not hasattr(provider, "fetch_timeseries"):
                 continue
             for price in provider.fetch_timeseries(items, start, end):
-                _, was_created = PriceQuote.objects.update_or_create(
-                    commodity=price.commodity,
-                    date=price.date,
-                    source=price.source,
-                    defaults={"price_usd": price.price_usd, "price_eur": price.price_eur},
+                to_upsert.append(
+                    PriceQuote(
+                        commodity=price.commodity,
+                        date=price.date,
+                        source=price.source,
+                        price_usd=price.price_usd,
+                        price_eur=price.price_eur,
+                    )
                 )
-                created += int(was_created)
-                updated += int(not was_created)
+        if to_upsert:
+            # Bulk upsert (handles tens of thousands of historical points fast).
+            PriceQuote.objects.bulk_create(
+                to_upsert,
+                batch_size=1000,
+                update_conflicts=True,
+                unique_fields=["commodity", "date", "source"],
+                update_fields=["price_usd", "price_eur"],
+            )
 
         run.finish(
             ImportRun.Status.SUCCESS,
-            f"Backfill {start}→{end} : {created} cours créés, {updated} mis à jour.",
+            f"Backfill {start}→{end} : {len(to_upsert)} cours importés.",
         )
     except Exception as exc:  # noqa: BLE001
         run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")

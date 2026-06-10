@@ -8,7 +8,7 @@ cours USD/EUR, pays détenteurs/producteurs, secteurs d'usage, produits du quoti
 
 - **Backend** : Django 5.2 LTS + Django REST Framework, django-filter, django-unfold (admin), PostgreSQL (SQLite en dev), `uv`.
 - **Frontend** : Vite + React + TypeScript + Tailwind v4 + shadcn/ui, TanStack Query, Recharts, react-router.
-- **Sources de données** : Commodities-API (cours), USGS + EU JRC RMIS (réserves/production/secteurs/produits), GDELT (conflits).
+- **Sources de données (gratuites)** : World Bank Pink Sheet (cours mensuels depuis 1960) + USGS (réserves/production + prix annuel cobalt) + dataset curé (secteurs/produits) + GDELT (conflits).
 
 ## Structure
 
@@ -28,11 +28,14 @@ cd backend
 uv sync                              # dépendances (Python 3.12)
 cp .env.example .env                 # DATABASE_URL pointe déjà sur le Postgres Docker
 uv run python manage.py migrate
-uv run python manage.py seed            # données de démo (idempotent)
-uv run python manage.py import_curated  # secteurs d'usage % + produits (dataset curé, sourcé, éditable en admin)
-uv run python manage.py enrich_data     # données réelles : réserves/production USGS (+ conflits GDELT) — ~1 min
+uv run python manage.py import_commodities             # catalogue complet (~39 matières)
+uv run python manage.py seed                           # démo : pays, secteurs, produits, événements (idempotent)
+uv run python manage.py import_curated                 # secteurs d'usage % + produits (curé, sourcé, éditable en admin)
+uv run python manage.py update_prices                  # derniers cours (World Bank + USGS cobalt)
+uv run python manage.py backfill_prices --days 25000   # historique des cours (depuis 1960)
+uv run python manage.py enrich_data                    # réserves/production USGS (+ conflits GDELT) — ~1 min
 uv run python manage.py createsuperuser
-uv run python manage.py runserver       # http://localhost:8000 (admin sur /admin/)
+uv run python manage.py runserver                      # http://localhost:8000 (admin sur /admin/)
 ```
 
 ## Démarrage frontend (dev)
