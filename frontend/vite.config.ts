@@ -15,7 +15,13 @@ export default defineConfig({
   server: {
     proxy: {
       // Same-origin in dev: the SPA calls /api, Vite proxies to Django.
-      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+      // 127.0.0.1 (not "localhost") sidesteps macOS IPv6 resolution; the
+      // default :8001 keeps us clear of :8000, which other local Docker
+      // projects may already occupy. Override with VITE_API_TARGET if needed.
+      '/api': {
+        target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8001',
+        changeOrigin: true,
+      },
     },
   },
 })

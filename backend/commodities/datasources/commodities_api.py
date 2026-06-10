@@ -56,8 +56,8 @@ class CommoditiesApiProvider(PriceProvider):
     def fetch_latest(self, commodities: list[Commodity]) -> list[PriceData]:
         symbol_to_commodity: dict[str, Commodity] = {}
         for commodity in commodities:
-            if commodity.price_symbol:
-                symbol_to_commodity.setdefault(commodity.price_symbol.upper(), commodity)
+            if commodity.api_symbol:
+                symbol_to_commodity.setdefault(commodity.api_symbol.upper(), commodity)
         if not symbol_to_commodity:
             return []
 
@@ -91,8 +91,8 @@ class CommoditiesApiProvider(PriceProvider):
         """Historical daily prices over [start, end], for backfilling charts."""
         symbol_to_commodity: dict[str, Commodity] = {}
         for commodity in commodities:
-            if commodity.price_symbol:
-                symbol_to_commodity.setdefault(commodity.price_symbol.upper(), commodity)
+            if commodity.api_symbol:
+                symbol_to_commodity.setdefault(commodity.api_symbol.upper(), commodity)
         if not symbol_to_commodity:
             return []
 

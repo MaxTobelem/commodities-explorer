@@ -34,35 +34,61 @@ from .models import (
 def update_prices() -> ImportRun:
     """Fetch and upsert the latest price quotes for all active commodities.
 
+    Two lanes, in order:
+      1. **Commodities-API (daily)** for commodities carrying an ``api_symbol``,
+         when ``COMMODITIES_API_KEY`` is configured. A provider/API failure
+         aborts the run (a broken paid subscription should be loud, not stale).
+      2. **Historical/fallback provider** (``price_provider``, e.g. World Bank
+         monthly) fills in whatever lane 1 did not price — so a missing or
+         unknown ticker degrades gracefully to the free source, never a gap.
+
     Idempotent: re-running on the same day updates existing quotes (keyed by
     commodity+date+source) rather than creating duplicates.
     """
+    from django.conf import settings
+
     run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
     try:
         commodities = list(Commodity.objects.filter(is_active=True))
-        by_provider: dict[str, list[Commodity]] = defaultdict(list)
-        for commodity in commodities:
-            by_provider[commodity.price_provider].append(commodity)
-
         created = updated = 0
         priced_ids: set[int] = set()
         missing_providers: set[str] = set()
 
+        def upsert(price) -> None:
+            nonlocal created, updated
+            _, was_created = PriceQuote.objects.update_or_create(
+                commodity=price.commodity,
+                date=price.date,
+                source=price.source,
+                defaults={"price_usd": price.price_usd, "price_eur": price.price_eur},
+            )
+            created += int(was_created)
+            updated += int(not was_created)
+            priced_ids.add(price.commodity.pk)
+
+        # Lane 1 — Commodities-API (daily updates via api_symbol).
+        api_provider = get_price_provider("commodities_api")
+        api_ready = api_provider is not None and bool(
+            getattr(settings, "COMMODITIES_API_KEY", "")
+        )
+        if api_ready:
+            api_items = [c for c in commodities if c.api_symbol]
+            if api_items:
+                for price in api_provider.fetch_latest(api_items):
+                    upsert(price)
+
+        # Lane 2 — historical/fallback provider for whatever is still unpriced.
+        remaining = [c for c in commodities if c.pk not in priced_ids]
+        by_provider: dict[str, list[Commodity]] = defaultdict(list)
+        for commodity in remaining:
+            by_provider[commodity.price_provider].append(commodity)
         for provider_key, items in by_provider.items():
             provider = get_price_provider(provider_key)
             if provider is None:
                 missing_providers.add(provider_key)
                 continue
             for price in provider.fetch_latest(items):
-                _, was_created = PriceQuote.objects.update_or_create(
-                    commodity=price.commodity,
-                    date=price.date,
-                    source=price.source,
-                    defaults={"price_usd": price.price_usd, "price_eur": price.price_eur},
-                )
-                created += int(was_created)
-                updated += int(not was_created)
-                priced_ids.add(price.commodity.pk)
+                upsert(price)
 
         skipped = len(commodities) - len(priced_ids)
         message = (

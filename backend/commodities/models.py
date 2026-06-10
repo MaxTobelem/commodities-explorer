@@ -53,10 +53,24 @@ class Commodity(TimeStamped):
     )
     is_active = models.BooleanField(default=True)
 
-    # Pluggable price source: which provider/symbol to use when fetching prices.
-    price_provider = models.CharField(max_length=32, default="commodities_api")
+    # Two decoupled price lanes:
+    #  • Daily updates → Commodities-API via `api_symbol` (see services.update_prices).
+    #  • History / monthly fallback → `price_provider` + `price_symbol` (e.g. World Bank).
+    price_provider = models.CharField(
+        max_length=32,
+        default="commodities_api",
+        help_text="Fournisseur historique / de repli (ex. worldbank, usgs_price)",
+    )
     price_symbol = models.CharField(
-        max_length=64, blank=True, help_text="Symbole/label côté fournisseur (ex. LCO, Crude oil, Brent)"
+        max_length=64,
+        blank=True,
+        help_text="Label côté fournisseur historique (ex. 'Gold', 'Crude oil, Brent')",
+    )
+    api_symbol = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Ticker Commodities-API pour la MAJ quotidienne (ex. XAU, BRENTOIL). "
+        "Vide ⇒ pas de cours quotidien, repli sur le fournisseur historique.",
     )
 
     class Meta:

@@ -5,6 +5,7 @@ from decimal import Decimal
 import openpyxl
 import pytest
 import responses
+from django.core.management import call_command
 
 from commodities import services
 from commodities.datasources.commodities_api import CommoditiesApiProvider
@@ -19,6 +20,9 @@ TIMESERIES_URL = "https://api.commodities-api.com/api/timeseries"
 
 
 def make_commodity(name, symbol, **kwargs):
+    # api_symbol defaults to the same ticker so Commodities-API tests resolve it;
+    # pass api_symbol="" to exercise the World Bank fallback lane.
+    kwargs.setdefault("api_symbol", symbol)
     return Commodity.objects.create(
         name=name, slug=name.lower(), symbol=symbol, price_symbol=symbol, **kwargs
     )
@@ -113,6 +117,48 @@ def test_update_prices_service_records_error(settings):
     assert run.status == ImportRun.Status.ERROR
     assert "boom" in run.message
     assert PriceQuote.objects.count() == 0
+
+
+@responses.activate
+def test_update_prices_falls_back_to_worldbank_when_api_misses(settings):
+    """A ticker the daily API doesn't return is gap-filled by the monthly source."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.WORLD_BANK_XLSX_URL = "http://test/cmo.xlsx"
+    settings.EUR_USD_RATE = "0.9"
+    mock_latest({"ALU": 0.0004, "EUR": 0.9})  # API covers ALU but not 'Gold'
+    responses.add(responses.GET, "http://test/cmo.xlsx", body=_wb_xlsx_bytes(), status=200)
+    make_commodity("Aluminium", "ALU", price_provider="worldbank")
+    make_commodity("Or", "Gold", price_provider="worldbank")  # api_symbol 'Gold' not upstream
+
+    run = services.update_prices()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    by_name = {q.commodity.name: q for q in PriceQuote.objects.select_related("commodity")}
+    assert by_name["Aluminium"].source == "commodities_api"  # daily lane
+    assert by_name["Or"].source == "worldbank"  # gap-filled monthly lane
+
+
+@responses.activate
+def test_check_api_symbols_reports_valid_invalid_and_blank(settings):
+    settings.COMMODITIES_API_KEY = "test-key"
+    responses.add(
+        responses.GET,
+        "https://api.commodities-api.com/api/symbols",
+        json={"success": True, "symbols": {"XAU": "Gold", "BRENTOIL": "Brent Crude Oil"}},
+        status=200,
+    )
+    make_commodity("Or", "XAU", api_symbol="XAU")  # valid
+    make_commodity("Cuivre", "CU", api_symbol="NOPE")  # invalid ticker
+    make_commodity("Thé", "THE", api_symbol="")  # blank → monthly only
+
+    out = io.StringIO()
+    call_command("check_api_symbols", stdout=out)
+    text = out.getvalue()
+
+    assert "Or: XAU" in text
+    assert "NOPE" in text  # invalid flagged
+    assert "Thé" in text  # blank listed
+    assert "BRENTOIL" in text  # supported-but-unused suggestion
 
 
 @responses.activate

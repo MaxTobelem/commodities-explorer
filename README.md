@@ -35,7 +35,7 @@ uv run python manage.py update_prices                  # derniers cours (World B
 uv run python manage.py backfill_prices --days 25000   # historique des cours (depuis 1960)
 uv run python manage.py enrich_data                    # production/réserves (USGS minerais + OWID énergie/agricole) + conflits GDELT
 uv run python manage.py createsuperuser
-uv run python manage.py runserver                      # http://localhost:8000 (admin sur /admin/)
+uv run python manage.py runserver 127.0.0.1:8001       # port 8001 (évite :8000 occupé) — admin sur /admin/
 ```
 
 ## Démarrage frontend (dev)
@@ -43,7 +43,7 @@ uv run python manage.py runserver                      # http://localhost:8000 (
 ```bash
 cd frontend
 npm install
-npm run dev    # http://localhost:5173 (proxy /api → http://localhost:8000)
+npm run dev    # http://localhost:5173 (proxy /api → http://127.0.0.1:8001)
 ```
 
 Le backend doit tourner en parallèle. Crée un compte (email) via `createsuperuser`
