@@ -7,6 +7,7 @@ progress/outcome is visible and auditable.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections import defaultdict
 
 from django.db import transaction
@@ -71,6 +72,41 @@ def update_prices() -> ImportRun:
             message += f" Fournisseurs inconnus: {', '.join(sorted(missing_providers))}."
         run.finish(ImportRun.Status.SUCCESS, message)
     except Exception as exc:  # noqa: BLE001 — surface any failure into the audit row
+        run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
+    return run
+
+
+def backfill_prices(days: int = 90) -> ImportRun:
+    """Backfill historical daily prices (providers that support time series)."""
+    run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
+    try:
+        end = dt.date.today()
+        start = end - dt.timedelta(days=days)
+        commodities = list(Commodity.objects.filter(is_active=True))
+        by_provider: dict[str, list[Commodity]] = defaultdict(list)
+        for commodity in commodities:
+            by_provider[commodity.price_provider].append(commodity)
+
+        created = updated = 0
+        for provider_key, items in by_provider.items():
+            provider = get_price_provider(provider_key)
+            if provider is None or not hasattr(provider, "fetch_timeseries"):
+                continue
+            for price in provider.fetch_timeseries(items, start, end):
+                _, was_created = PriceQuote.objects.update_or_create(
+                    commodity=price.commodity,
+                    date=price.date,
+                    source=price.source,
+                    defaults={"price_usd": price.price_usd, "price_eur": price.price_eur},
+                )
+                created += int(was_created)
+                updated += int(not was_created)
+
+        run.finish(
+            ImportRun.Status.SUCCESS,
+            f"Backfill {start}→{end} : {created} cours créés, {updated} mis à jour.",
+        )
+    except Exception as exc:  # noqa: BLE001
         run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
     return run
 

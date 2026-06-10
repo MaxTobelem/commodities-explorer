@@ -85,6 +85,47 @@ class CommoditiesApiProvider(PriceProvider):
             )
         return results
 
+    def fetch_timeseries(
+        self, commodities: list[Commodity], start: dt.date, end: dt.date
+    ) -> list[PriceData]:
+        """Historical daily prices over [start, end], for backfilling charts."""
+        symbol_to_commodity: dict[str, Commodity] = {}
+        for commodity in commodities:
+            if commodity.price_symbol:
+                symbol_to_commodity.setdefault(commodity.price_symbol.upper(), commodity)
+        if not symbol_to_commodity:
+            return []
+
+        payload = self._request_timeseries(sorted(symbol_to_commodity), start, end)
+        rates_by_date = self._extract_rates(payload)  # {date: {symbol: rate, EUR: rate}}
+
+        results: list[PriceData] = []
+        for date_str, day_rates in rates_by_date.items():
+            if not isinstance(day_rates, dict):
+                continue
+            try:
+                quote_date = dt.date.fromisoformat(str(date_str)[:10])
+            except ValueError:
+                continue
+            eur_per_usd = self._to_decimal(day_rates.get("EUR"))
+            for symbol, commodity in symbol_to_commodity.items():
+                price_usd = self._price_from_rate(day_rates.get(symbol))
+                if price_usd is None:
+                    continue
+                price_eur = (
+                    (price_usd * eur_per_usd).quantize(_QUANT) if eur_per_usd is not None else None
+                )
+                results.append(
+                    PriceData(
+                        commodity=commodity,
+                        date=quote_date,
+                        price_usd=price_usd,
+                        price_eur=price_eur,
+                        source=self.key,
+                    )
+                )
+        return results
+
     # -- internals -----------------------------------------------------------
 
     def _request(self, symbols: list[str]) -> dict[str, Any]:
@@ -98,6 +139,29 @@ class CommoditiesApiProvider(PriceProvider):
             "symbols": ",".join([*symbols, "EUR"]),
         }
         response = requests.get(f"{self.base_url}/latest", params=params, timeout=self.timeout)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is False:
+            raise RuntimeError(f"Commodities-API erreur: {payload.get('error')}")
+        return payload
+
+    def _request_timeseries(
+        self, symbols: list[str], start: dt.date, end: dt.date
+    ) -> dict[str, Any]:
+        if not self.api_key:
+            raise RuntimeError(
+                "COMMODITIES_API_KEY manquant — configurez la clé dans l'environnement."
+            )
+        params = {
+            "access_key": self.api_key,
+            "base": "USD",
+            "symbols": ",".join([*symbols, "EUR"]),
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        }
+        response = requests.get(
+            f"{self.base_url}/timeseries", params=params, timeout=self.timeout
+        )
         response.raise_for_status()
         payload = response.json()
         if payload.get("success") is False:
