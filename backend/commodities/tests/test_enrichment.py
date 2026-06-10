@@ -15,6 +15,7 @@ from commodities.datasources.base import (
     UsageRecord,
 )
 from commodities.datasources.gdelt import GDELT_DOC_API, GdeltProvider
+from commodities.datasources.owid import OWID_URL, OwidProvider
 from commodities.datasources.usgs import UsgsProvider
 from commodities.models import (
     Commodity,
@@ -197,3 +198,26 @@ def test_usgs_parses_world_data():
     reserves = {(r.commodity.slug, r.country_iso3): r for r in res.reserves}
     assert reserves[("cobalt", "COD")].reserves_t == Decimal("6000000.00")
     assert ("aluminium", "CHN") not in reserves  # aluminium reserves are reported as bauxite
+
+
+@responses.activate
+def test_owid_production_latest_year_and_unit():
+    wheat = Commodity.objects.create(name="Blé", slug="ble", price_symbol="Wheat, US HRW")
+    body = (
+        "entity,code,year,wheat__00000015__production__005510__tonnes\n"
+        "China,CHN,2023,138000000\n"
+        "China,CHN,2024,140000000\n"
+        "World,OWID_WRL,2024,800000000\n"  # aggregate, must be skipped
+        "India,IND,2024,113000000\n"
+    )
+    responses.add(
+        responses.GET, OWID_URL.format(slug="wheat-production").split("?")[0], body=body, status=200
+    )
+
+    res = OwidProvider().fetch([wheat])
+
+    by = {r.country_iso3: r for r in res.production}
+    assert len(res.production) == 2  # CHN + IND (World aggregate skipped)
+    assert by["CHN"].year == 2024  # latest year per country
+    assert by["CHN"].production_t == Decimal("140000000.00")
+    assert by["CHN"].unit == "t"

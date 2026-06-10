@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
-import { formatDate, formatTonnes } from "@/lib/format"
+import { formatDate, formatQuantity, formatTonnes } from "@/lib/format"
 import type {
   CommodityEvent,
   Composition,
@@ -75,7 +75,27 @@ export function CountryDetail() {
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Section title="Matières produites">
-          <RankBar items={commodityRows(production.data ?? [], (r: Production) => Number(r.production_t))} format={formatTonnes} />
+          {(production.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune production référencée.</p>
+          ) : (
+            <ul className="space-y-2">
+              {[...(production.data ?? [])]
+                .sort((a, b) => a.commodity.name.localeCompare(b.commodity.name))
+                .map((p) => (
+                  <li
+                    key={p.commodity.slug}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <Link to={`/commodity/${p.commodity.slug}`} className="font-medium hover:underline">
+                      {p.commodity.name}
+                    </Link>
+                    <span className="tabular-nums text-muted-foreground">
+                      {formatQuantity(p.production_t, p.unit)}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
         </Section>
         <Section title="Réserves détenues">
           <RankBar items={commodityRows(reserves.data ?? [], (r: Reserve) => Number(r.reserves_t))} format={formatTonnes} />

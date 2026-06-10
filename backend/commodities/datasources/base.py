@@ -70,6 +70,7 @@ class ProductionRecord:
     year: int
     production_t: Decimal
     source: str
+    unit: str = "t"
 
 
 @dataclass(frozen=True)

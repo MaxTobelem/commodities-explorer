@@ -33,7 +33,7 @@ uv run python manage.py seed                           # démo : pays, secteurs,
 uv run python manage.py import_curated                 # secteurs d'usage % + produits (curé, sourcé, éditable en admin)
 uv run python manage.py update_prices                  # derniers cours (World Bank + USGS cobalt)
 uv run python manage.py backfill_prices --days 25000   # historique des cours (depuis 1960)
-uv run python manage.py enrich_data                    # réserves/production USGS (+ conflits GDELT) — ~1 min
+uv run python manage.py enrich_data                    # production/réserves (USGS minerais + OWID énergie/agricole) + conflits GDELT
 uv run python manage.py createsuperuser
 uv run python manage.py runserver                      # http://localhost:8000 (admin sur /admin/)
 ```

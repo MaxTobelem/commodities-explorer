@@ -9,7 +9,7 @@ import { RankBar, type RankItem } from "@/components/RankBar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { type Currency, formatDate, formatPrice, formatTonnes } from "@/lib/format"
+import { type Currency, formatDate, formatPrice, formatQuantity } from "@/lib/format"
 import { api } from "@/lib/api"
 import type {
   Commodity,
@@ -82,6 +82,7 @@ export function CommodityDetail() {
   const geoRows: RankItem[] = geoMap
     .slice(0, 8)
     .map((d) => ({ label: d.name, value: d.value, href: `/country/${d.iso3}` }))
+  const geoUnit = geo === "production" ? (production.data?.[0]?.unit ?? "t") : "t"
 
   const sectorRows: RankItem[] = (usages.data ?? [])
     .filter((u) => u.share_percent !== null)
@@ -154,9 +155,9 @@ export function CommodityDetail() {
             />
           </CardHeader>
           <CardContent>
-            <Choropleth data={geoMap} format={formatTonnes} />
+            <Choropleth data={geoMap} format={(n) => formatQuantity(n, geoUnit)} />
             <div className="mt-4">
-              <RankBar items={geoRows} format={formatTonnes} />
+              <RankBar items={geoRows} format={(n) => formatQuantity(n, geoUnit)} />
             </div>
           </CardContent>
         </Card>

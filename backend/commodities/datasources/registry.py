@@ -6,6 +6,7 @@ from __future__ import annotations
 from .base import EnrichmentProvider, PriceProvider
 from .commodities_api import CommoditiesApiProvider
 from .gdelt import GdeltProvider
+from .owid import OwidProvider
 from .rmis import RmisProvider
 from .usgs import UsgsProvider
 from .usgs_price import UsgsPriceProvider
@@ -21,6 +22,7 @@ _PRICE_PROVIDERS: dict[str, PriceProvider] = {
 # Enrichment providers: all run during the monthly enrichment pass.
 _ENRICHMENT_PROVIDERS: list[EnrichmentProvider] = [
     UsgsProvider(),
+    OwidProvider(),
     RmisProvider(),
     GdeltProvider(),
 ]

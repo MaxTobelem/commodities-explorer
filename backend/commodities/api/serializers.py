@@ -107,7 +107,7 @@ class ProductionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CommodityProduction
-        fields = ["commodity", "country", "year", "production_t", "source"]
+        fields = ["commodity", "country", "year", "production_t", "unit", "source"]
 
 
 class UsageSerializer(serializers.ModelSerializer):

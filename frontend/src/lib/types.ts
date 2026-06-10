@@ -73,6 +73,7 @@ export interface Production {
   country: Country
   year: number
   production_t: string
+  unit: string
   source: string
 }
 

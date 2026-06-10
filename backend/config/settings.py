@@ -200,6 +200,9 @@ WORLD_BANK_XLSX_URL = env(
 )
 EUR_USD_RATE = env("EUR_USD_RATE", "0.92")
 
+# Our World in Data (production by country: agriculture FAO + energy).
+OWID_ENABLED = env_bool("OWID_ENABLED", True)
+
 
 # --- Production hardening (only when DEBUG is off) ---------------------------
 

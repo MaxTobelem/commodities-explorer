@@ -192,8 +192,9 @@ class CommodityProduction(Sourced):
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="production")
     year = models.PositiveIntegerField()
     production_t = models.DecimalField(
-        max_digits=22, decimal_places=2, help_text="Production annuelle en tonnes"
+        max_digits=22, decimal_places=2, help_text="Valeur de production annuelle"
     )
+    unit = models.CharField(max_length=8, default="t", help_text="Unité (t, TWh…)")
 
     class Meta:
         verbose_name = "production"

@@ -18,6 +18,14 @@ export function formatTonnes(value: string | number | null): string {
   return `${num.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} t`
 }
 
+export function formatQuantity(value: string | number | null, unit: string): string {
+  if (unit === "t") return formatTonnes(value)
+  if (value === null || value === undefined) return "—"
+  const num = typeof value === "string" ? Number(value) : value
+  if (Number.isNaN(num)) return "—"
+  return `${num.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} ${unit}`
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "—"
   return new Date(value).toLocaleDateString("fr-FR", { year: "numeric", month: "short", day: "numeric" })
