@@ -176,6 +176,19 @@ EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "no-reply@commodities-explorer.local")
 
 
+# --- Data sources -----------------------------------------------------------
+
+# Commodities-API (prices). Set COMMODITIES_API_KEY in the environment / .env.
+COMMODITIES_API_KEY = env("COMMODITIES_API_KEY", "")
+COMMODITIES_API_BASE_URL = env("COMMODITIES_API_BASE_URL", "https://api.commodities-api.com/api")
+COMMODITIES_API_TIMEOUT = int(env("COMMODITIES_API_TIMEOUT", "20"))
+COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", True)
+
+# GDELT (events) — pacing for the public rate limit.
+GDELT_REQUEST_DELAY = float(env("GDELT_REQUEST_DELAY", "6"))
+GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "10"))
+
+
 # --- Production hardening (only when DEBUG is off) ---------------------------
 
 if not DEBUG:
