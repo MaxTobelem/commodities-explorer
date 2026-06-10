@@ -8,10 +8,14 @@ from .commodities_api import CommoditiesApiProvider
 from .gdelt import GdeltProvider
 from .rmis import RmisProvider
 from .usgs import UsgsProvider
+from .usgs_price import UsgsPriceProvider
+from .worldbank import WorldBankProvider
 
 # Price providers: keyed by Commodity.price_provider.
 _PRICE_PROVIDERS: dict[str, PriceProvider] = {
     CommoditiesApiProvider.key: CommoditiesApiProvider(),
+    WorldBankProvider.key: WorldBankProvider(),
+    UsgsPriceProvider.key: UsgsPriceProvider(),
 }
 
 # Enrichment providers: all run during the monthly enrichment pass.

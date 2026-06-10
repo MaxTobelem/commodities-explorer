@@ -1,11 +1,15 @@
 import datetime as dt
+import io
 from decimal import Decimal
 
+import openpyxl
 import pytest
 import responses
 
 from commodities import services
 from commodities.datasources.commodities_api import CommoditiesApiProvider
+from commodities.datasources.usgs_price import UsgsPriceProvider
+from commodities.datasources.worldbank import WorldBankProvider
 from commodities.models import Commodity, ImportRun, PriceQuote
 
 pytestmark = pytest.mark.django_db
@@ -162,3 +166,61 @@ def test_backfill_prices_service_creates_history(settings):
     assert run.status == ImportRun.Status.SUCCESS
     assert PriceQuote.objects.count() == 2
     assert "2 cours créés" in run.message
+
+
+def _wb_xlsx_bytes() -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Monthly Prices"
+    ws.append(["World Bank Commodity Price Data"])
+    ws.append(["monthly prices"])
+    ws.append(["(monthly series)"])
+    ws.append(["Updated on ..."])
+    ws.append([None, "Aluminum", "Gold"])  # row 5: commodity names
+    ws.append([None, "($/mt)", "($/troy oz)"])  # row 6: units
+    ws.append(["2025M11", 2800, 4000])
+    ws.append(["2025M12", 2875.53, 4309.23])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@responses.activate
+def test_worldbank_provider_fetch_latest(settings):
+    settings.WORLD_BANK_XLSX_URL = "http://test/cmo.xlsx"
+    settings.EUR_USD_RATE = "0.9"
+    responses.add(responses.GET, "http://test/cmo.xlsx", body=_wb_xlsx_bytes(), status=200)
+    alu = make_commodity("Aluminium", "Aluminum")
+    au = make_commodity("Or", "Gold")
+
+    results = {p.commodity.price_symbol: p for p in WorldBankProvider().fetch_latest([alu, au])}
+
+    assert results["Aluminum"].price_usd == Decimal("2875.5300")
+    assert results["Aluminum"].price_eur == Decimal("2587.9770")  # × 0.9
+    assert results["Gold"].price_usd == Decimal("4309.2300")
+    assert str(results["Aluminum"].date) == "2025-12-01"
+
+
+@responses.activate
+def test_usgs_price_provider_cobalt_per_tonne():
+    item_url = "https://www.sciencebase.gov/catalog/item/6797fb00d34ea8c18376e159"
+    salient_url = "http://test/cobalt_salient.csv"
+    responses.add(
+        responses.GET,
+        item_url,
+        json={"files": [{"name": "mcs2025-cobal_salient.csv", "downloadUri": salient_url}]},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        salient_url,
+        body="Year,Price_Spot_dlb,Price_LME_dlb\n2023,17.2,15.48\n2024,17.0,12.0\n",
+        status=200,
+    )
+    cobalt = make_commodity("Cobalt", "Cobalt")
+
+    results = UsgsPriceProvider().fetch_latest([cobalt])
+
+    assert len(results) == 1
+    assert results[0].date == dt.date(2024, 7, 1)  # latest year
+    assert results[0].price_usd == (Decimal("17.0") * Decimal("2204.62262")).quantize(Decimal("0.0001"))

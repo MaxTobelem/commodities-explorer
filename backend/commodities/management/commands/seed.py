@@ -51,7 +51,8 @@ COMMODITIES = [
         "symbol": "ALU",
         "category": Commodity.Category.BASE,
         "price_unit": "USD/t",
-        "price_symbol": "ALU",
+        "price_provider": "worldbank",
+        "price_symbol": "Aluminum",  # World Bank column label
         "description": "Métal léger très utilisé dans le transport, l'emballage et la construction.",
     },
     {
@@ -59,7 +60,8 @@ COMMODITIES = [
         "symbol": "LCO",
         "category": Commodity.Category.BATTERY,
         "price_unit": "USD/t",
-        "price_symbol": "LCO",
+        "price_provider": "usgs_price",  # cobalt absent du World Bank → prix annuel USGS
+        "price_symbol": "Cobalt",
         "description": "Métal stratégique des batteries lithium-ion et des superalliages.",
     },
     {
@@ -67,7 +69,8 @@ COMMODITIES = [
         "symbol": "XAU",
         "category": Commodity.Category.PRECIOUS,
         "price_unit": "USD/ozt",
-        "price_symbol": "XAU",
+        "price_provider": "worldbank",
+        "price_symbol": "Gold",  # World Bank column label
         "description": "Métal précieux : valeur refuge, bijouterie et électronique.",
     },
 ]
@@ -195,7 +198,7 @@ class Command(BaseCommand):
                     "symbol": data["symbol"],
                     "category": data["category"],
                     "price_unit": data["price_unit"],
-                    "price_provider": "commodities_api",
+                    "price_provider": data["price_provider"],
                     "price_symbol": data["price_symbol"],
                     "description": data["description"],
                     "is_active": True,

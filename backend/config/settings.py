@@ -192,6 +192,14 @@ GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "10"))
 USGS_ENABLED = env_bool("USGS_ENABLED", True)
 USGS_MCS_ITEM_ID = env("USGS_MCS_ITEM_ID", "677eaf95d34e760b392c4970")  # MCS 2025
 
+# World Bank Pink Sheet (free monthly prices). EUR is an approximate conversion (prices are USD-only).
+WORLD_BANK_XLSX_URL = env(
+    "WORLD_BANK_XLSX_URL",
+    "https://thedocs.worldbank.org/en/doc/18675f1d1639c7a34d463f59263ba0a2-0050012025/"
+    "related/CMO-Historical-Data-Monthly.xlsx",
+)
+EUR_USD_RATE = env("EUR_USD_RATE", "0.92")
+
 
 # --- Production hardening (only when DEBUG is off) ---------------------------
 
