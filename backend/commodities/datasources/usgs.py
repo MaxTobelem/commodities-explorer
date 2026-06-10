@@ -30,7 +30,19 @@ SCIENCEBASE_ITEM = "https://www.sciencebase.gov/catalog/item/{item_id}?format=js
 USER_AGENT = "Mozilla/5.0 (commodities-explorer research dashboard)"
 
 # Our commodity slug → USGS COMMODITY label (extend via USGS_COMMODITY_NAMES).
-DEFAULT_USGS_NAMES = {"aluminium": "Aluminum", "cobalt": "Cobalt", "or": "Gold"}
+DEFAULT_USGS_NAMES = {
+    "aluminium": "Aluminum",
+    "cobalt": "Cobalt",
+    "or": "Gold",
+    "cuivre": "Copper",
+    "nickel": "Nickel",
+    "zinc": "Zinc",
+    "plomb": "Lead",
+    "etain": "Tin",
+    "argent": "Silver",
+    "minerai-de-fer": "Iron Ore",
+    "platine": "Platinum-Group metals",
+}
 
 # USGS country spellings → (ISO3, display name); pycountry resolves the rest.
 COUNTRY_OVERRIDES: dict[str, tuple[str, str]] = {
