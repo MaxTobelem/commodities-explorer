@@ -10,9 +10,18 @@ Tailscale (plan Personal), SMTP (tier gratuit) et GitHub = 0 €.
 
 ## 1. Préparer le VPS
 
+Distribution : **Ubuntu Server LTS** 64-bit (24.04 ou 26.04). La version importe peu —
+toute l'app tourne en **conteneurs Docker** (Python 3.12, Postgres 16, Node 20, nginx
+embarqués) ; l'hôte n'a besoin que de Docker + Tailscale + rclone + cron.
+
 ```bash
-# Docker + compose plugin
+# Docker + plugin compose
 curl -fsSL https://get.docker.com | sh
+# Si le dépôt Docker ne connaît pas encore la release (Ubuntu très récente), fallback :
+#   sudo apt update && sudo apt install -y docker.io docker-compose-v2
+docker --version && docker compose version
+sudo usermod -aG docker "$USER"   # éviter sudo pour docker (reconnecte la session SSH ensuite)
+
 # Pare-feu : SSH uniquement, on n'ouvre PAS 80/443 au public
 sudo apt install -y ufw
 sudo ufw default deny incoming
@@ -20,6 +29,8 @@ sudo ufw default allow outgoing
 sudo ufw allow 22/tcp
 sudo ufw enable
 ```
+
+> rclone (binaire statique) et Tailscale sont insensibles à la version d'Ubuntu.
 
 ## 2. VPN privé (Tailscale)
 
