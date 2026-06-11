@@ -148,6 +148,51 @@ def backfill_prices(days: int = 90) -> ImportRun:
     return run
 
 
+def backfill_daily(days: int = 120) -> ImportRun:
+    """Backfill recent DAILY prices from Commodities-API for commodities carrying an
+    ``api_symbol`` — fills the gap between the monthly World Bank history and today."""
+    from django.conf import settings
+
+    run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
+    try:
+        provider = get_price_provider("commodities_api")
+        if provider is None or not getattr(settings, "COMMODITIES_API_KEY", ""):
+            run.finish(
+                ImportRun.Status.ERROR,
+                "COMMODITIES_API_KEY manquant — backfill quotidien impossible.",
+            )
+            return run
+        end = dt.date.today()
+        start = end - dt.timedelta(days=days)
+        commodities = [c for c in Commodity.objects.filter(is_active=True) if c.api_symbol]
+        to_upsert = [
+            PriceQuote(
+                commodity=p.commodity,
+                date=p.date,
+                source=p.source,
+                price_usd=p.price_usd,
+                price_eur=p.price_eur,
+            )
+            for p in provider.fetch_timeseries(commodities, start, end)
+        ]
+        if to_upsert:
+            PriceQuote.objects.bulk_create(
+                to_upsert,
+                batch_size=1000,
+                update_conflicts=True,
+                unique_fields=["commodity", "date", "source"],
+                update_fields=["price_usd", "price_eur"],
+            )
+        run.finish(
+            ImportRun.Status.SUCCESS,
+            f"Backfill quotidien {start}→{end} : "
+            f"{len(to_upsert)} cours Commodities-API importés.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
+    return run
+
+
 def enrich_data(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
     """Run all enrichment providers and upsert their records (monthly cadence).
 

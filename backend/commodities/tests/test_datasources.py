@@ -265,6 +265,63 @@ def test_backfill_prices_service_creates_history(settings):
     assert "2 cours importés" in run.message
 
 
+@responses.activate
+def test_provider_fetch_timeseries_chunks_by_symbol_cap(settings):
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.COMMODITIES_API_MAX_SYMBOLS = 2  # 1 symbol + EUR per request
+    # Symbols are requested sorted → WHEAT chunk first, then XAU.
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": True, "rates": {"2024-06-01": {"WHEAT": 0.004, "EUR": 0.9}}},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": True, "rates": {"2024-06-01": {"XAU": 0.0005, "EUR": 0.9}}},
+        status=200,
+    )
+    au = make_commodity("Or", "XAU")
+    wheat = make_commodity("Blé", "WHEAT")
+
+    results = {
+        p.commodity.symbol: p
+        for p in CommoditiesApiProvider().fetch_timeseries(
+            [au, wheat], dt.date(2024, 6, 1), dt.date(2024, 6, 1)
+        )
+    }
+
+    assert len(responses.calls) == 2  # two symbols split into two capped requests
+    assert results["XAU"].price_usd == Decimal("2000.0000")
+    assert results["WHEAT"].price_usd == Decimal("250.0000")
+
+
+@responses.activate
+def test_backfill_daily_service_imports_commodities_api_history(settings):
+    settings.COMMODITIES_API_KEY = "test-key"
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={
+            "success": True,
+            "rates": {
+                "2024-06-01": {"XAU": 0.0005, "EUR": 0.9},
+                "2024-06-02": {"XAU": 0.0004, "EUR": 0.9},
+            },
+        },
+        status=200,
+    )
+    make_commodity("Or", "XAU")  # daily lane
+    make_commodity("Thé", "THE", api_symbol="")  # no api_symbol → excluded
+
+    run = services.backfill_daily(days=10)
+
+    assert run.status == ImportRun.Status.SUCCESS
+    assert PriceQuote.objects.filter(source="commodities_api").count() == 2
+    assert "cours Commodities-API importés" in run.message
+
+
 def _wb_xlsx_bytes() -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active

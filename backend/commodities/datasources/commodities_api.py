@@ -143,8 +143,16 @@ class CommoditiesApiProvider(PriceProvider):
         if not symbol_to_commodity:
             return []
 
-        payload = self._request_timeseries(sorted(symbol_to_commodity), start, end)
-        rates_by_date = self._extract_rates(payload)  # {date: {symbol: rate, EUR: rate}}
+        # Chunk under the plan's per-request symbol cap (EUR reserves one slot),
+        # merging each chunk's per-date rate maps.
+        symbols = sorted(symbol_to_commodity)
+        per_request = max(1, self.max_symbols - 1)
+        rates_by_date: dict[str, Any] = {}
+        for offset in range(0, len(symbols), per_request):
+            payload = self._request_timeseries(symbols[offset : offset + per_request], start, end)
+            for date_str, day_rates in self._extract_rates(payload).items():
+                if isinstance(day_rates, dict):
+                    rates_by_date.setdefault(date_str, {}).update(day_rates)
 
         results: list[PriceData] = []
         for date_str, day_rates in rates_by_date.items():

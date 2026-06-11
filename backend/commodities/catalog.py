@@ -42,7 +42,7 @@ COMMODITY_CATALOG = [
     # Agricole — céréales
     ("Blé (US HRW)", "BLE", _A, "USD/t", "worldbank", "Wheat, US HRW", "WHEAT"),
     ("Maïs", "MAIS", _A, "USD/t", "worldbank", "Maize", "CORN"),
-    ("Riz (Thaï 5%)", "RIZ", _A, "USD/t", "worldbank", "Rice, Thai 5%", "RICE"),
+    ("Riz", "RIZ", _A, "USD/t", "worldbank", "", "RICE"),  # rough rice US (CA daily) ; WB Thaï retiré
     ("Orge", "ORGE", _A, "USD/t", "worldbank", "Barley", ""),
     # Agricole — autres aliments
     ("Sucre (mondial)", "SUCRE", _A, "USD/kg", "worldbank", "Sugar, world", "SUGAR"),
