@@ -21,25 +21,25 @@ gratuits ; Scaleway : 75 Go). La fréquence n'a aucun impact de coût.
 
 ```bash
 curl https://rclone.org/install.sh | sudo bash
-rclone config        # créer un remote (ex. Backblaze B2 / Cloudflare R2 / Scaleway)
+rclone config        # remote « scw » : type S3, provider Scaleway, endpoint s3.fr-par.scw.cloud
 ```
 
 Crée un bucket dédié (ex. `declo-backups`). Le remote rclone se référence ensuite
-`NOM_DU_REMOTE:bucket`, par ex. `b2:declo-backups`.
+`NOM_DU_REMOTE:bucket`, par ex. `scw:declo-backups`.
 
 ### 2. Tester une sauvegarde manuelle
 
 ```bash
 cd /opt/declo            # racine du repo sur le VPS
-BACKUP_RCLONE_REMOTE=b2:declo-backups ./scripts/db_backup.sh
+BACKUP_RCLONE_REMOTE=scw:declo-backups ./scripts/db_backup.sh
 ls -lh backups/          # dump local
-rclone ls b2:declo-backups   # dump distant
+rclone ls scw:declo-backups   # dump distant
 ```
 
 ### 3. Planifier (cron) — quotidien à 04:00
 
 ```cron
-0 4 * * *  cd /opt/declo && BACKUP_RCLONE_REMOTE=b2:declo-backups ./scripts/db_backup.sh >> /var/log/declo-backup.log 2>&1
+0 4 * * *  cd /opt/declo && BACKUP_RCLONE_REMOTE=scw:declo-backups ./scripts/db_backup.sh >> /var/log/declo-backup.log 2>&1
 ```
 
 Pour **toutes les 6 h** : `0 */6 * * *`. Pour **toutes les 12 h** : `0 */12 * * *`. (Même coût.)
@@ -57,8 +57,8 @@ Depuis un dump **distant** (cas « le VPS est mort, je repars de zéro ») :
 
 ```bash
 # Sur le nouveau VPS, après `docker compose -f docker-compose.prod.yml up -d db` :
-rclone ls b2:declo-backups                                   # lister les dumps
-./scripts/db_restore.sh b2:declo-backups/declo-AAAAMMJJ-HHMMSS.dump
+rclone ls scw:declo-backups                                   # lister les dumps
+./scripts/db_restore.sh scw:declo-backups/declo-AAAAMMJJ-HHMMSS.dump
 ```
 
 Depuis un dump **local** :

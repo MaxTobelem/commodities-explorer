@@ -34,20 +34,45 @@ connecte-les au **même** tailnet. Seuls ces appareils pourront atteindre l'app.
 
 ## 3. Récupérer le code et configurer
 
+> Repo privé : ajoute une **clé de déploiement lecture-seule** sur le VPS
+> (`ssh-keygen` puis GitHub → repo → Settings → Deploy keys) pour cloner/puller
+> sans jamais utiliser ton compte. Le VPS ne fait que *lire* le code.
+
 ```bash
-git clone git@github.com:MaxTobelem/commodities-explorer.git
-cd commodities-explorer
+sudo mkdir -p /opt/declo && sudo chown "$USER" /opt/declo
+git clone git@github.com:MaxTobelem/commodities-explorer.git /opt/declo
+cd /opt/declo
 cp backend/.env.prod.example backend/.env.prod
 # Édite backend/.env.prod : SECRET_KEY, POSTGRES_PASSWORD + DATABASE_URL,
-# ALLOWED_HOSTS (nom MagicDNS Tailscale), COMMODITIES_API_KEY, SMTP…
+# ALLOWED_HOSTS + CSRF_TRUSTED_ORIGINS (nom MagicDNS *.ts.net),
+# COMMODITIES_API_KEY, SMTP Mailjet…
 ```
 
-## 4. Lancer la stack
+## 4. Lancer la stack + charger les données
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
+```
+
+**Données initiales — 2 options :**
+
+```bash
+# Option A (recommandée) : restaurer un dump du dev → tout est là, AUCUN appel API
+#   1) sur le Mac (dev) :  COMPOSE='docker compose' ./scripts/db_backup.sh
+#   2) copier le dump sur le VPS :  scp backups/declo-*.dump user@vps:/opt/declo/backups/
+#   3) sur le VPS :
+./scripts/db_restore.sh ./backups/declo-AAAAMMJJ-HHMMSS.dump
+
+# Option B : repartir de zéro (long, consomme des appels API)
+docker compose -f docker-compose.prod.yml exec backend python manage.py import_commodities
+docker compose -f docker-compose.prod.yml exec backend python manage.py backfill_prices --days 25000
+docker compose -f docker-compose.prod.yml exec backend python manage.py refresh_data --skip update_prices
+```
+
+Puis crée ton compte (**ton email perso** = identifiant de connexion à l'app) :
+
+```bash
 docker compose -f docker-compose.prod.yml exec backend python manage.py createsuperuser
-docker compose -f docker-compose.prod.yml exec backend python manage.py seed
 ```
 
 `web` (Nginx) écoute par défaut sur `127.0.0.1:80` (jamais public).
@@ -72,10 +97,10 @@ email. Tout autre appareil : **injoignable**.
 
 ```cron
 # crontab -e
-# Cours quotidiens (06:00)
-0 6 * * *  cd /home/USER/commodities-explorer && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices
-# Enrichissement mensuel (le 1er à 05:00)
-0 5 1 * *  cd /home/USER/commodities-explorer && docker compose -f docker-compose.prod.yml exec -T backend python manage.py enrich_data
+# Cours toutes les 3 h (Commodities-API plan PRO + repli World Bank)
+0 */3 * * *  cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices
+# Enrichissement + curé + pays, le 1er du mois à 05:00 (GDELT possible en hebdo)
+0 5 1 * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_data --skip update_prices
 ```
 
 (Le bouton « Lancer une mise à jour complète » de l'admin reste disponible.)
@@ -89,14 +114,15 @@ restauration testée — détails complets dans **[BACKUP.md](BACKUP.md)**.
 Installer rclone une fois, puis planifier le dump quotidien + copie hors-VPS :
 
 ```bash
-curl https://rclone.org/install.sh | sudo bash && rclone config   # remote B2 / R2 / Scaleway
+curl https://rclone.org/install.sh | sudo bash
+rclone config   # remote « scw » : type S3, provider Scaleway, endpoint s3.fr-par.scw.cloud
 ```
 ```cron
-0 4 * * *  cd /opt/declo && BACKUP_RCLONE_REMOTE=b2:declo-backups ./scripts/db_backup.sh >> /var/log/declo-backup.log 2>&1
+0 4 * * *  cd /opt/declo && BACKUP_RCLONE_REMOTE=scw:declo-backups ./scripts/db_backup.sh >> /var/log/declo-backup.log 2>&1
 ```
 
 Restauration sur un VPS neuf :
-`./scripts/db_restore.sh b2:declo-backups/declo-AAAAMMJJ-HHMMSS.dump` (voir BACKUP.md).
+`./scripts/db_restore.sh scw:declo-backups/declo-AAAAMMJJ-HHMMSS.dump` (voir BACKUP.md).
 
 ## Mettre à jour l'app
 
