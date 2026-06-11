@@ -266,20 +266,16 @@ def test_backfill_prices_service_creates_history(settings):
 
 
 @responses.activate
-def test_provider_fetch_timeseries_chunks_by_symbol_cap(settings):
+def test_provider_fetch_timeseries_one_symbol_per_request(settings):
+    """Upstream allows a single symbol per timeseries call → one request per symbol (+ EUR)."""
     settings.COMMODITIES_API_KEY = "test-key"
-    settings.COMMODITIES_API_MAX_SYMBOLS = 2  # 1 symbol + EUR per request
-    # Symbols are requested sorted → WHEAT chunk first, then XAU.
     responses.add(
         responses.GET,
         TIMESERIES_URL,
-        json={"success": True, "rates": {"2024-06-01": {"WHEAT": 0.004, "EUR": 0.9}}},
-        status=200,
-    )
-    responses.add(
-        responses.GET,
-        TIMESERIES_URL,
-        json={"success": True, "rates": {"2024-06-01": {"XAU": 0.0005, "EUR": 0.9}}},
+        json={
+            "success": True,
+            "rates": {"2024-06-01": {"XAU": 0.0005, "WHEAT": 0.004, "EUR": 0.9}},
+        },
         status=200,
     )
     au = make_commodity("Or", "XAU")
@@ -292,7 +288,7 @@ def test_provider_fetch_timeseries_chunks_by_symbol_cap(settings):
         )
     }
 
-    assert len(responses.calls) == 2  # two symbols split into two capped requests
+    assert len(responses.calls) == 3  # EUR + XAU + WHEAT, one symbol per request
     assert results["XAU"].price_usd == Decimal("2000.0000")
     assert results["WHEAT"].price_usd == Decimal("250.0000")
 

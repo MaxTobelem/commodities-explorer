@@ -143,34 +143,26 @@ class CommoditiesApiProvider(PriceProvider):
         if not symbol_to_commodity:
             return []
 
-        # Chunk under the plan's per-request symbol cap (EUR reserves one slot),
-        # merging each chunk's per-date rate maps.
-        symbols = sorted(symbol_to_commodity)
-        per_request = max(1, self.max_symbols - 1)
-        rates_by_date: dict[str, Any] = {}
-        for offset in range(0, len(symbols), per_request):
-            payload = self._request_timeseries(symbols[offset : offset + per_request], start, end)
-            for date_str, day_rates in self._extract_rates(payload).items():
-                if isinstance(day_rates, dict):
-                    rates_by_date.setdefault(date_str, {}).update(day_rates)
+        # The timeseries endpoint accepts only ONE symbol per request, so fetch each
+        # commodity individually — plus EUR once for the per-date USD→EUR conversion.
+        eur_by_date = self._timeseries_rates("EUR", start, end)
 
         results: list[PriceData] = []
-        for date_str, day_rates in rates_by_date.items():
-            if not isinstance(day_rates, dict):
-                continue
-            try:
-                quote_date = dt.date.fromisoformat(str(date_str)[:10])
-            except ValueError:
-                continue
-            eur_per_usd = self._to_decimal(day_rates.get("EUR"))
-            for symbol, commodity in symbol_to_commodity.items():
-                price_usd = self._price_from_rate(day_rates.get(symbol))
+        for symbol, commodity in symbol_to_commodity.items():
+            factor = self._unit_factor(symbol)
+            for date_str, rate in self._timeseries_rates(symbol, start, end).items():
+                price_usd = self._price_from_rate(rate)
                 if price_usd is None:
                     continue
-                price_usd = (price_usd * self._unit_factor(symbol)).quantize(_QUANT)
+                price_usd = (price_usd * factor).quantize(_QUANT)
+                eur_per_usd = self._to_decimal(eur_by_date.get(date_str))
                 price_eur = (
                     (price_usd * eur_per_usd).quantize(_QUANT) if eur_per_usd is not None else None
                 )
+                try:
+                    quote_date = dt.date.fromisoformat(str(date_str)[:10])
+                except ValueError:
+                    continue
                 results.append(
                     PriceData(
                         commodity=commodity,
@@ -211,7 +203,7 @@ class CommoditiesApiProvider(PriceProvider):
         params = {
             "access_key": self.api_key,
             "base": "USD",
-            "symbols": ",".join([*symbols, "EUR"]),
+            "symbols": ",".join(symbols),  # timeseries allows ONE symbol per request
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
         }
@@ -223,6 +215,15 @@ class CommoditiesApiProvider(PriceProvider):
         if payload.get("success") is False:
             raise RuntimeError(f"Commodities-API erreur: {payload.get('error')}")
         return payload
+
+    def _timeseries_rates(self, symbol: str, start: dt.date, end: dt.date) -> dict[str, Any]:
+        """Single-symbol time series → {date: rate}. Upstream allows one symbol only."""
+        payload = self._request_timeseries([symbol], start, end)
+        out: dict[str, Any] = {}
+        for date_str, day_rates in self._extract_rates(payload).items():
+            if isinstance(day_rates, dict) and symbol in day_rates:
+                out[date_str] = day_rates[symbol]
+        return out
 
     @staticmethod
     def _extract_rates(payload: dict[str, Any]) -> dict[str, Any]:
