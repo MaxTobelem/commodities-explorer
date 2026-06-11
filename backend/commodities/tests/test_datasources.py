@@ -155,10 +155,11 @@ def test_update_prices_falls_back_to_worldbank_when_api_misses(settings):
 @responses.activate
 def test_check_api_symbols_reports_valid_invalid_and_blank(settings):
     settings.COMMODITIES_API_KEY = "test-key"
+    # The live /symbols endpoint returns the {symbol: name} map at the JSON root.
     responses.add(
         responses.GET,
         "https://api.commodities-api.com/api/symbols",
-        json={"success": True, "symbols": {"XAU": "Gold", "BRENTOIL": "Brent Crude Oil"}},
+        json={"XAU": "Gold", "BRENTOIL": "Brent Crude Oil"},
         status=200,
     )
     make_commodity("Or", "XAU", api_symbol="XAU")  # valid
@@ -173,6 +174,24 @@ def test_check_api_symbols_reports_valid_invalid_and_blank(settings):
     assert "NOPE" in text  # invalid flagged
     assert "Thé" in text  # blank listed
     assert "BRENTOIL" in text  # supported-but-unused suggestion
+
+
+@responses.activate
+def test_check_api_symbols_handles_wrapped_symbols_shape(settings):
+    """The older/wrapped shape ({"symbols": {...}}) is still supported."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    responses.add(
+        responses.GET,
+        "https://api.commodities-api.com/api/symbols",
+        json={"success": True, "symbols": {"XAU": "Gold"}},
+        status=200,
+    )
+    make_commodity("Or", "XAU", api_symbol="XAU")
+
+    out = io.StringIO()
+    call_command("check_api_symbols", stdout=out)
+
+    assert "Or: XAU" in out.getvalue()
 
 
 @responses.activate

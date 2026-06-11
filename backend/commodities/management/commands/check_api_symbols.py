@@ -13,6 +13,26 @@ from django.core.management.base import BaseCommand, CommandError
 
 from commodities.models import Commodity
 
+# Meta keys that may sit alongside the symbol→name pairs in some response shapes.
+_META_KEYS = {"success", "error", "data", "rates", "date", "timestamp", "base", "unit"}
+
+
+def _symbol_map(payload: object) -> dict:
+    """Extract the {symbol: name} mapping across Commodities-API response shapes.
+
+    The live ``/symbols`` endpoint returns the map at the JSON **root**
+    (``{"ALU": "Aluminum", ...}``); older/wrapped shapes nest it under
+    ``"symbols"`` or ``"data"."symbols"``.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("symbols"), dict):
+        return payload["symbols"]
+    data = payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("symbols"), dict):
+        return data["symbols"]
+    return {k: v for k, v in payload.items() if k not in _META_KEYS and isinstance(v, str)}
+
 
 class Command(BaseCommand):
     help = "Vérifie les tickers Commodities-API (api_symbol) des matières actives."
@@ -29,9 +49,9 @@ class Command(BaseCommand):
         response = requests.get(f"{base}/symbols", params={"access_key": key}, timeout=20)
         response.raise_for_status()
         payload = response.json()
-        if payload.get("success") is False:
+        if isinstance(payload, dict) and payload.get("success") is False:
             raise CommandError(f"Commodities-API erreur: {payload.get('error')}")
-        supported = {str(s).upper(): name for s, name in (payload.get("symbols") or {}).items()}
+        supported = {str(s).upper(): name for s, name in _symbol_map(payload).items()}
 
         ok: list[tuple[str, str]] = []
         bad: list[tuple[str, str]] = []
