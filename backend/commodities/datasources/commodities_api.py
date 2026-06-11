@@ -26,6 +26,37 @@ if TYPE_CHECKING:
 
 _QUANT = Decimal("0.0001")
 
+# Commodities-API quotes each symbol in its own native unit (metals per troy ounce;
+# ags per lb / bushel / cwt / tonne, sometimes in US cents), which rarely matches our
+# canonical `price_unit`. The API's `unit` field gives the dimension but not the
+# precision — it labels base metals "per ounce" though they are troy, and never
+# distinguishes cents from dollars — so we pin a factor per symbol, each validated
+# against the World Bank series. The factor assumes the catalog's canonical price_unit
+# and is applied to `1 / rate` BEFORE rounding (so tiny rates like iron keep precision).
+_TROY_OZ_PER_TONNE = Decimal("32150.7466")  # 1 t / 31.1034768 g
+_LB_PER_KG = Decimal("2.2046226218")
+_UNIT_FACTOR: dict[str, Decimal] = {
+    # Base / battery metals: API per troy ounce → canonical USD/t.
+    "ALU": _TROY_OZ_PER_TONNE,
+    "XCU": _TROY_OZ_PER_TONNE,
+    "NI": _TROY_OZ_PER_TONNE,
+    "LEAD": _TROY_OZ_PER_TONNE,
+    "LME-ZNC": _TROY_OZ_PER_TONNE,
+    "TIN": _TROY_OZ_PER_TONNE,
+    "LCO": _TROY_OZ_PER_TONNE,
+    "IRON": _TROY_OZ_PER_TONNE,  # canonical USD/dmtu ≈ USD/t
+    # Agriculturals.
+    "COCOA": Decimal("0.001"),              # USD/tonne → USD/kg
+    "SUGAR": _LB_PER_KG,                    # USD/lb → USD/kg
+    "COTTON": _LB_PER_KG,                   # USD/lb → USD/kg
+    "COFFEE": _LB_PER_KG / 100,             # US cents/lb → USD/kg
+    "CORN": _LB_PER_KG * 1000 / 56 / 100,   # US cents/bushel (56 lb) → USD/t
+    "SOYBEAN": _LB_PER_KG * 1000 / 60,      # USD/bushel (60 lb) → USD/t
+    "RICE": _LB_PER_KG * 1000 / 100,        # USD/cwt (100 lb) → USD/t
+    # Already canonical (factor 1, omitted): XAU/XAG/XPT (USD/ozt), WHEAT/COAL (USD/t),
+    # NG (USD/mmbtu), BRENTOIL (USD/bbl).
+}
+
 
 class CommoditiesApiProvider(PriceProvider):
     key = "commodities_api"
@@ -86,6 +117,7 @@ class CommoditiesApiProvider(PriceProvider):
             price_usd = self._price_from_rate(rates.get(symbol))
             if price_usd is None:
                 continue  # symbol not covered by the upstream API — skip, don't fail
+            price_usd = (price_usd * self._unit_factor(symbol)).quantize(_QUANT)
             price_eur = (
                 (price_usd * eur_per_usd).quantize(_QUANT) if eur_per_usd is not None else None
             )
@@ -127,6 +159,7 @@ class CommoditiesApiProvider(PriceProvider):
                 price_usd = self._price_from_rate(day_rates.get(symbol))
                 if price_usd is None:
                     continue
+                price_usd = (price_usd * self._unit_factor(symbol)).quantize(_QUANT)
                 price_eur = (
                     (price_usd * eur_per_usd).quantize(_QUANT) if eur_per_usd is not None else None
                 )
@@ -211,8 +244,13 @@ class CommoditiesApiProvider(PriceProvider):
         return dec if dec != 0 else None
 
     def _price_from_rate(self, rate: Any) -> Decimal | None:
+        """USD per the symbol's *native* unit (unquantized — caller scales then rounds)."""
         dec = self._to_decimal(rate)
         if dec is None:
             return None
-        price = (Decimal(1) / dec) if self.rate_is_per_usd else dec
-        return price.quantize(_QUANT)
+        return (Decimal(1) / dec) if self.rate_is_per_usd else dec
+
+    @staticmethod
+    def _unit_factor(symbol: str) -> Decimal:
+        """Factor converting the symbol's native API unit to its canonical price_unit."""
+        return _UNIT_FACTOR.get(symbol.upper(), Decimal(1))

@@ -40,19 +40,37 @@ def mock_latest(rates, date="2024-06-09"):
 @responses.activate
 def test_provider_parses_and_converts(settings):
     settings.COMMODITIES_API_KEY = "test-key"
-    mock_latest({"ALU": 0.0004, "XAU": 0.0005, "EUR": 0.9})
-    alu = make_commodity("Aluminium", "ALU")
+    # XAU (USD/ozt) and WHEAT (USD/t) are already canonical → unit factor 1.
+    mock_latest({"XAU": 0.0005, "WHEAT": 0.004, "EUR": 0.9})
     au = make_commodity("Or", "XAU")
+    wheat = make_commodity("Blé", "WHEAT")
 
-    results = {p.commodity.symbol: p for p in CommoditiesApiProvider().fetch_latest([alu, au])}
+    results = {p.commodity.symbol: p for p in CommoditiesApiProvider().fetch_latest([au, wheat])}
 
     # price_usd = 1 / rate ; price_eur = price_usd * (EUR per USD)
-    assert results["ALU"].price_usd == Decimal("2500.0000")
-    assert results["ALU"].price_eur == Decimal("2250.0000")
     assert results["XAU"].price_usd == Decimal("2000.0000")
     assert results["XAU"].price_eur == Decimal("1800.0000")
-    assert str(results["ALU"].date) == "2024-06-09"
-    assert results["ALU"].source == "commodities_api"
+    assert results["WHEAT"].price_usd == Decimal("250.0000")
+    assert results["WHEAT"].price_eur == Decimal("225.0000")
+    assert str(results["XAU"].date) == "2024-06-09"
+    assert results["XAU"].source == "commodities_api"
+
+
+@responses.activate
+def test_provider_applies_unit_factor(settings):
+    """Per-symbol unit normalisation: metals troy-oz→tonne, softs lb/cents→kg."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    # XCU (per troy ounce), SUGAR (USD/lb), COFFEE (US cents/lb).
+    mock_latest({"XCU": 2.5, "SUGAR": 7.0, "COFFEE": 0.5})
+    cu = make_commodity("Cuivre", "XCU", price_unit="USD/t")
+    sugar = make_commodity("Sucre", "SUGAR", price_unit="USD/kg")
+    coffee = make_commodity("Café", "COFFEE", price_unit="USD/kg")
+
+    res = {p.commodity.symbol: p for p in CommoditiesApiProvider().fetch_latest([cu, sugar, coffee])}
+
+    assert res["XCU"].price_usd == Decimal("12860.2986")  # 0.4 USD/ozt × 32150.7466
+    assert res["SUGAR"].price_usd == Decimal("0.3149")  # 0.142857 USD/lb × 2.2046226
+    assert res["COFFEE"].price_usd == Decimal("0.0441")  # 2.0 cents/lb × 2.2046226 / 100
 
 
 @responses.activate
@@ -84,12 +102,12 @@ def test_provider_chunks_requests_by_symbol_cap(settings):
 @responses.activate
 def test_provider_without_eur_leaves_price_eur_none(settings):
     settings.COMMODITIES_API_KEY = "test-key"
-    mock_latest({"ALU": 0.0004})
-    alu = make_commodity("Aluminium", "ALU")
+    mock_latest({"XAU": 0.0005})
+    au = make_commodity("Or", "XAU")
 
-    [result] = CommoditiesApiProvider().fetch_latest([alu])
+    [result] = CommoditiesApiProvider().fetch_latest([au])
 
-    assert result.price_usd == Decimal("2500.0000")
+    assert result.price_usd == Decimal("2000.0000")
     assert result.price_eur is None
 
 
@@ -203,24 +221,24 @@ def test_provider_fetch_timeseries_parses_dates(settings):
         json={
             "success": True,
             "rates": {
-                "2024-06-01": {"ALU": 0.0004, "EUR": 0.9},
-                "2024-06-02": {"ALU": 0.0005, "EUR": 0.9},
+                "2024-06-01": {"XAU": 0.0005, "EUR": 0.9},
+                "2024-06-02": {"XAU": 0.0004, "EUR": 0.9},
             },
         },
         status=200,
     )
-    alu = make_commodity("Aluminium", "ALU")
+    au = make_commodity("Or", "XAU")
 
     results = {
         str(p.date): p
         for p in CommoditiesApiProvider().fetch_timeseries(
-            [alu], dt.date(2024, 6, 1), dt.date(2024, 6, 2)
+            [au], dt.date(2024, 6, 1), dt.date(2024, 6, 2)
         )
     }
 
-    assert results["2024-06-01"].price_usd == Decimal("2500.0000")
-    assert results["2024-06-01"].price_eur == Decimal("2250.0000")
-    assert results["2024-06-02"].price_usd == Decimal("2000.0000")
+    assert results["2024-06-01"].price_usd == Decimal("2000.0000")
+    assert results["2024-06-01"].price_eur == Decimal("1800.0000")
+    assert results["2024-06-02"].price_usd == Decimal("2500.0000")
 
 
 @responses.activate
