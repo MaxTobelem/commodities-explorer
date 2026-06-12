@@ -32,7 +32,7 @@ const RANGES = [
 export function CommodityDetail() {
   const { slug = "" } = useParams()
   const [currency, setCurrency] = useState<Currency>("usd")
-  const [range, setRange] = useState<string>("1y")
+  const [range, setRange] = useState<string>("6m")
   const [geo, setGeo] = useState<"production" | "reserves">("production")
 
   const commodity = useQuery({
