@@ -176,7 +176,7 @@ def test_gdelt_dates_event_to_latest_article():
     CommodityProduction.objects.create(
         commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
     )
-    arts = [{"title": f"News {i}", "url": "http://x", "seendate": "20260605T120000Z"} for i in range(7)]
+    arts = [{"title": f"News {i}", "url": "http://x", "seendate": "20260605T120000Z"} for i in range(11)]
     arts.append({"title": "Latest", "url": "http://y", "seendate": "20260611T120000Z"})
     responses.add(responses.GET, GDELT_DOC_API, json={"articles": arts}, status=200)
 
@@ -196,7 +196,7 @@ def test_refresh_events_applies_only_gdelt_impacts():
     responses.add(
         responses.GET,
         GDELT_DOC_API,
-        json={"articles": [{"title": f"c{i}", "url": "http://x", "seendate": "20260611T000000Z"} for i in range(8)]},
+        json={"articles": [{"title": f"c{i}", "url": "http://x", "seendate": "20260611T000000Z"} for i in range(12)]},
         status=200,
     )
 

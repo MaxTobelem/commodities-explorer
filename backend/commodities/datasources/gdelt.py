@@ -40,13 +40,13 @@ class GdeltProvider(EnrichmentProvider):
 
     @property
     def article_threshold(self) -> int:
-        # English-language articles only (sourcelang:eng), so a lower bar than all-langs.
-        return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 6)
+        return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 10)
 
     @property
     def max_retries(self) -> int:
-        # GDELT throttles hard (1 req / 5 s); retry a few times before giving up.
-        return getattr(settings, "GDELT_MAX_RETRIES", 4)
+        # GDELT throttles hard (1 req / 5 s); one quick retry then give up, so a
+        # throttled run stays time-bounded (no long escalating back-off).
+        return getattr(settings, "GDELT_MAX_RETRIES", 2)
 
     @property
     def timeout(self) -> int:
@@ -108,13 +108,26 @@ class GdeltProvider(EnrichmentProvider):
         articles = payload.get("articles") or []
         if len(articles) < self.article_threshold:
             return None
-        first = articles[0]
+        lead = self._pick_english(articles)
         dates = [d for a in articles if (d := self._parse_seendate(a.get("seendate")))]
         return {
-            "summary": first.get("title", ""),
-            "url": first.get("url", ""),
+            "summary": lead.get("title", ""),
+            "url": lead.get("url", ""),
             "date": max(dates) if dates else dt.date.today(),
         }
+
+    @staticmethod
+    def _pick_english(articles: list[dict[str, Any]]) -> dict[str, Any]:
+        """Headline for the (French) UI: prefer an English article, else a Latin-script
+        one, else the first — so we don't surface e.g. a Chinese headline."""
+        for article in articles:
+            if (article.get("language") or "").lower().startswith("eng"):
+                return article
+        for article in articles:
+            title = article.get("title") or ""
+            if title and sum(c.isascii() for c in title) >= 0.8 * len(title):
+                return article
+        return articles[0]
 
     @staticmethod
     def _parse_seendate(raw: Any) -> dt.date | None:
@@ -125,15 +138,11 @@ class GdeltProvider(EnrichmentProvider):
             return None
 
     def _query_gdelt(self, country_name: str) -> dict[str, Any]:
-        # `sourcelang:eng` restricts to English-language news so headlines are readable
-        # in the FR UI. The old code used the *invalid* token `sourcelang:english`,
-        # which silently returned nothing and zeroed every signal; `eng` is the correct
-        # GDELT language code (verified live: ~15 English hits for China).
+        # Query all languages for coverage (the old `sourcelang:english` token was
+        # invalid and zeroed everything; `sourcelang:eng` works but English-only cut
+        # coverage too much). We pick an English headline client-side instead.
         params = {
-            "query": (
-                f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions) '
-                "sourcelang:eng"
-            ),
+            "query": f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions)',
             "mode": "artlist",
             "format": "json",
             "maxrecords": 75,
@@ -144,7 +153,8 @@ class GdeltProvider(EnrichmentProvider):
             self._respect_rate_limit()
             response = requests.get(GDELT_DOC_API, params=params, headers=headers, timeout=self.timeout)
             if response.status_code == 429:
-                time.sleep(self.request_delay * (attempt + 1))  # escalating back-off
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.request_delay)  # brief back-off, then one retry
                 continue
             response.raise_for_status()
             try:

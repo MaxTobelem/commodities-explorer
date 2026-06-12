@@ -189,7 +189,7 @@ COMMODITIES_API_MAX_SYMBOLS = int(env("COMMODITIES_API_MAX_SYMBOLS", "10"))
 
 # GDELT (events) — pacing for the public rate limit.
 GDELT_REQUEST_DELAY = float(env("GDELT_REQUEST_DELAY", "6"))
-GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "6"))
+GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "10"))
 
 # USGS (reserves/production) — bump USGS_MCS_ITEM_ID to the new ScienceBase item each year.
 USGS_ENABLED = env_bool("USGS_ENABLED", True)
