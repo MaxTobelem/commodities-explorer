@@ -60,6 +60,7 @@ class CommodityListSerializer(serializers.ModelSerializer):
         max_digits=16, decimal_places=4, allow_null=True, read_only=True
     )
     latest_price_date = serializers.DateField(allow_null=True, read_only=True)
+    latest_price_source = serializers.CharField(allow_null=True, read_only=True)
     sparkline = serializers.SerializerMethodField()
 
     class Meta:
@@ -67,7 +68,8 @@ class CommodityListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "slug", "symbol", "category", "category_display",
             "price_unit", "image_url",
-            "latest_price_usd", "latest_price_eur", "latest_price_date", "sparkline",
+            "latest_price_usd", "latest_price_eur", "latest_price_date",
+            "latest_price_source", "sparkline",
         ]
 
     def get_sparkline(self, obj) -> list[float]:

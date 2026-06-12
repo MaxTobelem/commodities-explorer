@@ -26,6 +26,11 @@ from .filters import (
     SectorFilter,
 )
 
+# The daily price source (Commodities-API) supersedes the coarser monthly fallback
+# (World Bank) wherever they overlap, so each commodity's series reads as one clean
+# line: long monthly history, then daily once the daily source starts.
+DAILY_PRICE_SOURCE = "commodities_api"
+
 
 def annotate_latest_price(qs: QuerySet) -> QuerySet:
     latest = PriceQuote.objects.filter(commodity=OuterRef("pk")).order_by("-date")
@@ -33,7 +38,23 @@ def annotate_latest_price(qs: QuerySet) -> QuerySet:
         latest_price_usd=Subquery(latest.values("price_usd")[:1]),
         latest_price_eur=Subquery(latest.values("price_eur")[:1]),
         latest_price_date=Subquery(latest.values("date")[:1]),
+        latest_price_source=Subquery(latest.values("source")[:1]),
     )
+
+
+def prefer_daily_in_overlap(quotes: list[PriceQuote]) -> list[PriceQuote]:
+    """Drop monthly quotes that fall inside the daily source's coverage window.
+
+    Once Commodities-API starts (its earliest quote), its daily points are both
+    finer and fresher than the monthly World Bank averages, so the stray monthly
+    points there would only add a zig-zag at a slightly different level. Quotes
+    older than the daily window are kept untouched (the historical line).
+    """
+    daily_dates = [q.date for q in quotes if q.source == DAILY_PRICE_SOURCE]
+    if not daily_dates:
+        return quotes
+    cutoff = min(daily_dates)
+    return [q for q in quotes if q.source == DAILY_PRICE_SOURCE or q.date < cutoff]
 
 
 class CommodityViewSet(viewsets.ReadOnlyModelViewSet):
@@ -60,7 +81,8 @@ class CommodityViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(date__gte=date_from)
         if date_to:
             qs = qs.filter(date__lte=date_to)
-        return Response(s.PriceQuoteSerializer(qs, many=True).data)
+        quotes = prefer_daily_in_overlap(list(qs))
+        return Response(s.PriceQuoteSerializer(quotes, many=True).data)
 
     @action(detail=True)
     def reserves(self, request, slug=None):

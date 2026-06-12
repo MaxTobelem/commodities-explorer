@@ -75,7 +75,10 @@ export function CommodityDetail() {
     limit.setDate(limit.getDate() - cutoff)
     return new Date(p.date) >= limit
   })
-  const priceSource = prices.data?.[0]?.source  // latest quote (API ordered by -date)
+  // Source of the *current* price = the annotated newest quote (not the oldest point).
+  const priceSource = c.latest_price_source
+  // Sources actually present in the visible series (history + daily may differ).
+  const chartSources = Array.from(new Set(filteredPrices.map((p) => p.source)))
 
   const geoMap: MapDatum[] =
     geo === "production"
@@ -148,6 +151,13 @@ export function CommodityDetail() {
         </CardHeader>
         <CardContent>
           {prices.isLoading ? <Skeleton className="h-[280px]" /> : <PriceChart data={filteredPrices} currency={currency} />}
+          {chartSources.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {chartSources.map((src) => (
+                <SourceTag key={src} source={src} />
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

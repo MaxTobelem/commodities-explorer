@@ -21,6 +21,7 @@ export interface Commodity extends CommodityMini {
   latest_price_usd: string | null
   latest_price_eur: string | null
   latest_price_date: string | null
+  latest_price_source: string | null
   sparkline?: number[]
   description?: string
 }

@@ -65,6 +65,36 @@ def test_detail_has_latest_price_annotation(client, seeded):
     assert body["latest_price_date"] == "2024-06-01"
 
 
+def test_detail_exposes_latest_price_source(client, seeded):
+    # The tag next to the current price must reflect the *newest* quote's source.
+    body = client.get("/api/commodities/cobalt/").json()
+    assert body["latest_price_source"] == "seed"
+
+
+def test_prices_prefer_daily_over_monthly_in_overlap(client, seeded):
+    cobalt = Commodity.objects.get(slug="cobalt")
+    # Monthly history (World Bank) then an overlapping daily window (Commodities-API).
+    PriceQuote.objects.create(
+        commodity=cobalt, date=dt.date(2025, 10, 1), price_usd=Decimal("100"), source="worldbank"
+    )
+    PriceQuote.objects.create(
+        commodity=cobalt, date=dt.date(2025, 12, 1), price_usd=Decimal("110"), source="worldbank"
+    )
+    PriceQuote.objects.create(
+        commodity=cobalt, date=dt.date(2025, 12, 1), price_usd=Decimal("111"), source="commodities_api"
+    )
+    PriceQuote.objects.create(
+        commodity=cobalt, date=dt.date(2025, 12, 2), price_usd=Decimal("112"), source="commodities_api"
+    )
+
+    pairs = {(r["date"], r["source"]) for r in client.get("/api/commodities/cobalt/prices/").json()}
+
+    assert ("2025-10-01", "worldbank") in pairs  # predates daily window → kept
+    assert ("2025-12-01", "worldbank") not in pairs  # inside daily window → dropped
+    assert ("2025-12-01", "commodities_api") in pairs
+    assert ("2025-12-02", "commodities_api") in pairs
+
+
 def test_filter_by_country(client, seeded):
     n = names(client.get("/api/commodities/?country=COD").json())
     assert n == {"Cobalt"}  # only cobalt is produced/held in DR Congo in the seed
