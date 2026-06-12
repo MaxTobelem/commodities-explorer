@@ -108,10 +108,13 @@ email. Tout autre appareil : **injoignable**.
 
 ```cron
 # crontab -e
-# Cours toutes les 3 h (Commodities-API plan PRO + repli World Bank)
-0 */3 * * *  cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices
-# Enrichissement + curé + pays, le 1er du mois à 05:00 (GDELT possible en hebdo)
-0 5 1 * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_data --skip update_prices
+PATH=/usr/local/bin:/usr/bin:/bin
+# Cours toutes les 6 h (Commodities-API + repli World Bank)
+0 */6 * * *  cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices >> /home/ubuntu/declo-cron.log 2>&1
+# Enrichissement + curé + pays — le 1er du mois à 05:00
+0 5 1 * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_data --skip update_prices >> /home/ubuntu/declo-cron.log 2>&1
+# Événements GDELT (conflits → impacts matières) — chaque jour à 07:30 (export bulk, fiable)
+30 7 * * *   cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_events >> /home/ubuntu/declo-cron.log 2>&1
 ```
 
 (Le bouton « Lancer une mise à jour complète » de l'admin reste disponible.)
