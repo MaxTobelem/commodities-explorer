@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 from django.conf import settings
 
+from commodities.countries import english_name
 from commodities.models import CommodityProduction, Event, EventImpact
 
 from .base import EnrichmentProvider, EnrichmentResult, ImpactRecord
@@ -28,16 +29,6 @@ if TYPE_CHECKING:
 
 GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 USER_AGENT = "commodities-explorer/1.0 (research dashboard)"
-
-# Minimal ISO3 → English name map for building GDELT queries; falls back to the
-# stored (French) name. Extended automatically once USGS imports English names.
-COUNTRY_EN = {
-    "CHN": "China", "AUS": "Australia", "COD": "Democratic Republic of the Congo",
-    "RUS": "Russia", "GIN": "Guinea", "IDN": "Indonesia", "USA": "United States",
-    "CAN": "Canada", "ZAF": "South Africa", "BRA": "Brazil", "IND": "India",
-    "PER": "Peru", "CHL": "Chile", "PHL": "Philippines", "KAZ": "Kazakhstan",
-    "MDG": "Madagascar", "ZMB": "Zambia", "MEX": "Mexico", "GHA": "Ghana",
-}
 
 
 class GdeltProvider(EnrichmentProvider):
@@ -50,6 +41,11 @@ class GdeltProvider(EnrichmentProvider):
     @property
     def article_threshold(self) -> int:
         return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 10)
+
+    @property
+    def max_retries(self) -> int:
+        # GDELT throttles hard (1 req / 5 s); retry a few times before giving up.
+        return getattr(settings, "GDELT_MAX_RETRIES", 4)
 
     @property
     def timeout(self) -> int:
@@ -106,7 +102,7 @@ class GdeltProvider(EnrichmentProvider):
             return None
 
     def _conflict_signal(self, country: Country) -> dict[str, Any] | None:
-        name_en = COUNTRY_EN.get(country.iso3, country.name)
+        name_en = english_name(country.iso3, country.name)
         payload = self._query_gdelt(name_en)
         articles = payload.get("articles") or []
         if len(articles) < self.article_threshold:
@@ -115,26 +111,29 @@ class GdeltProvider(EnrichmentProvider):
         return {"summary": first.get("title", ""), "url": first.get("url", "")}
 
     def _query_gdelt(self, country_name: str) -> dict[str, Any]:
+        # No sourcelang filter: the English query terms already bias toward English
+        # news, and GDELT's `sourcelang:english` token returns nothing (it expects
+        # `eng`, and even that over-filters), which silently zeroed every signal.
         params = {
-            "query": f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions) sourcelang:english',
+            "query": f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions)',
             "mode": "artlist",
             "format": "json",
             "maxrecords": 75,
             "timespan": "1month",
         }
         headers = {"User-Agent": USER_AGENT}
-        for attempt in range(2):
+        for attempt in range(self.max_retries):
             self._respect_rate_limit()
             response = requests.get(GDELT_DOC_API, params=params, headers=headers, timeout=self.timeout)
             if response.status_code == 429:
-                time.sleep(self.request_delay)  # back off, then retry once
+                time.sleep(self.request_delay * (attempt + 1))  # escalating back-off
                 continue
             response.raise_for_status()
             try:
                 return response.json()
             except ValueError:
                 return {}  # GDELT occasionally returns an empty/non-JSON body
-        return {}  # still rate-limited after a retry — treat as "no signal"
+        return {}  # still rate-limited after retries — treat as "no signal"
 
     def _respect_rate_limit(self) -> None:
         if self.request_delay <= 0:

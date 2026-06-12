@@ -1,7 +1,7 @@
 import pytest
 from django.core.management import call_command
 
-from commodities.countries import french_name
+from commodities.countries import english_name, french_name
 from commodities.models import Country
 
 
@@ -11,6 +11,13 @@ def test_french_name_overrides_and_cldr():
     assert french_name("CHL") == "Chili"  # CLDR via Babel
     assert french_name("SAU") == "Arabie saoudite"
     assert french_name("ZZZ", "Repli") == "Repli"  # unknown code → fallback
+
+
+def test_english_name_overrides_and_cldr():
+    assert english_name("CHN") == "China"  # CLDR via Babel
+    assert english_name("COD") == "Democratic Republic of the Congo"  # override
+    assert english_name("AUS") == "Australia"
+    assert english_name("ZZZ", "Fallback") == "Fallback"  # unknown code → fallback
 
 
 @pytest.mark.django_db

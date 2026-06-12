@@ -40,3 +40,39 @@ def french_name(iso3: str, fallback: str = "") -> str:
         if name:
             return name
     return fallback or iso3
+
+
+@functools.lru_cache(maxsize=1)
+def _en_territories() -> dict[str, str]:
+    return Locale("en").territories
+
+
+# Search-friendly English names where the CLDR default is awkward for news search.
+_EN_OVERRIDES: dict[str, str] = {
+    "COD": "Democratic Republic of the Congo",
+    "USA": "United States",
+    "GBR": "United Kingdom",
+    "KOR": "South Korea",
+    "PRK": "North Korea",
+    "RUS": "Russia",
+    "IRN": "Iran",
+    "BOL": "Bolivia",
+    "VEN": "Venezuela",
+    "LAO": "Laos",
+    "SYR": "Syria",
+    "TZA": "Tanzania",
+}
+
+
+@functools.lru_cache(maxsize=1024)
+def english_name(iso3: str, fallback: str = "") -> str:
+    """Return a search-friendly English name for an ISO3 code (or ``fallback``)."""
+    iso3 = (iso3 or "").upper()
+    if iso3 in _EN_OVERRIDES:
+        return _EN_OVERRIDES[iso3]
+    country = pycountry.countries.get(alpha_3=iso3)
+    if country is not None:
+        name = _en_territories().get(country.alpha_2)
+        if name:
+            return name
+    return fallback or iso3
