@@ -262,7 +262,9 @@ function Results({ entity, data }: { entity: string; data: unknown[] }) {
   }
   if (entity === "commodities") {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Prix actuel · variation et tendance sur 6 mois</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(data as Commodity[]).map((c) => {
           const spark = c.sparkline ?? []
           const change =
@@ -306,6 +308,7 @@ function Results({ entity, data }: { entity: string; data: unknown[] }) {
             </Link>
           )
         })}
+        </div>
       </div>
     )
   }

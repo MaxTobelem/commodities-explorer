@@ -1,3 +1,5 @@
+import datetime as dt
+
 from rest_framework import serializers
 
 from commodities.models import (
@@ -13,6 +15,8 @@ from commodities.models import (
     ProductComposition,
     Sector,
 )
+
+SPARKLINE_DAYS = 182  # card sparkline + % change window (~6 months)
 
 # --- Mini serializers (compact references used across cross-links) -----------
 
@@ -73,9 +77,19 @@ class CommodityListSerializer(serializers.ModelSerializer):
         ]
 
     def get_sparkline(self, obj) -> list[float]:
-        # Last 30 daily USD prices (oldest→newest) for a card sparkline.
-        prices = obj.prices.order_by("-date").values_list("price_usd", flat=True)[:30]
-        return [float(p) for p in reversed(list(prices))]
+        # ~6 months of USD prices from the current source (oldest→newest) for the card
+        # sparkline + its % change. One source only so daily/monthly don't interleave,
+        # anchored on the latest point so a stale series still shows its last 6 months.
+        latest = obj.prices.order_by("-date").first()
+        if latest is None:
+            return []
+        since = latest.date - dt.timedelta(days=SPARKLINE_DAYS)
+        prices = (
+            obj.prices.filter(source=latest.source, date__gte=since)
+            .order_by("date")
+            .values_list("price_usd", flat=True)
+        )
+        return [float(p) for p in prices]
 
 
 class CommodityDetailSerializer(CommodityListSerializer):

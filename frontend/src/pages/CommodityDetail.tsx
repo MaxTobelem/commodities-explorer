@@ -85,6 +85,14 @@ export function CommodityDetail() {
   const priceSource = c.latest_price_source
   // Sources actually present in the visible series (history + daily may differ).
   const chartSources = Array.from(new Set(filteredPrices.map((p) => p.source)))
+  // % change over the visible window, in the selected currency (same idea as the cards).
+  const rangeValues = filteredPrices
+    .map((p) => (currency === "usd" ? Number(p.price_usd) : p.price_eur ? Number(p.price_eur) : null))
+    .filter((v): v is number => v !== null && !Number.isNaN(v))
+  const changePct =
+    rangeValues.length > 1 && rangeValues[0]
+      ? ((rangeValues[rangeValues.length - 1] - rangeValues[0]) / rangeValues[0]) * 100
+      : null
 
   const geoMap: MapDatum[] =
     geo === "production"
@@ -130,6 +138,17 @@ export function CommodityDetail() {
           <div className="text-3xl font-semibold tabular-nums">
             {formatPrice(currency === "usd" ? c.latest_price_usd : c.latest_price_eur, currency)}
           </div>
+          {changePct != null && (
+            <div
+              className={`text-sm font-medium tabular-nums ${changePct >= 0 ? "text-emerald-600" : "text-destructive"}`}
+            >
+              {changePct >= 0 ? "+" : ""}
+              {changePct.toFixed(1)}%{" "}
+              <span className="font-normal text-muted-foreground">
+                · {RANGES.find((r) => r.key === range)?.label}
+              </span>
+            </div>
+          )}
           <div className="text-xs text-muted-foreground">
             {c.price_unit} · {formatDate(c.latest_price_date)}
           </div>
