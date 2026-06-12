@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 import openpyxl
 import requests
 from django.conf import settings
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .base import PriceData, PriceProvider
 
@@ -40,6 +42,24 @@ _BROWSER_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
+# The VPS network flickers (transient 'Network is unreachable' to the WB CDN);
+# retry transient network/CDN failures with backoff so a blip doesn't fail the import.
+_RETRY = Retry(
+    total=3,
+    connect=3,
+    backoff_factor=1.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+)
+
+
+def _session() -> requests.Session:
+    """A requests session that rides over transient network blips with backoff."""
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=_RETRY)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def _clean(value: object) -> str:
@@ -115,7 +135,7 @@ class WorldBankProvider(PriceProvider):
         if not self.autodiscover:
             return self.url
         try:
-            response = requests.get(
+            response = _session().get(
                 self.page_url, timeout=self.timeout, headers={"User-Agent": _BROWSER_UA}
             )
             response.raise_for_status()
@@ -130,7 +150,7 @@ class WorldBankProvider(PriceProvider):
         wanted = {_clean(n) for n in wb_names if n}
         if not wanted:
             return {}
-        response = requests.get(self._resolve_url(), timeout=self.timeout)
+        response = _session().get(self._resolve_url(), timeout=self.timeout)
         response.raise_for_status()
         workbook = openpyxl.load_workbook(io.BytesIO(response.content), read_only=True, data_only=True)
         sheet = workbook["Monthly Prices"]
