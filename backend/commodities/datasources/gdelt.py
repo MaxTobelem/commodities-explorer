@@ -1,25 +1,32 @@
-"""GDELT-based event provider (https://www.gdeltproject.org/).
+"""GDELT event provider — bulk daily Events export (no rate-limited API).
 
-Heuristic, non-LLM linkage: a conflict/instability signal in a commodity's *top
-producing countries* (already in our DB) → a candidate supply-impacting event
-for that commodity, tagged needs_review for admin validation.
+GDELT's public DOC API throttles hard per-IP, which made a cron unreliable
+(empty runs were a coin-flip). Instead we download GDELT 1.0's **daily Events
+export** — one CSV per day, ~7 MB zipped, plain HTTP, *not* rate-limited — keep
+the material-conflict events (CAMEO QuadClass 4) located in our producing
+countries, and turn each country's aggregate into a candidate supply-impacting
+``Tensions en {pays}`` event, tagged needs_review for admin validation.
 
-The public DOC 2.0 API is rate-limited (≈1 request / 5 s) and returns a plain
-text notice (not JSON) on 429, so we pace requests, back off on 429, isolate
-per-country failures, and query with the English country name (GDELT indexes
-mostly English-language news).
+No machine translation: the description is built from the CAMEO root code, which
+we map directly to a French label. Each event also carries a real source-article
+URL (GDELT's SOURCEURL column).
 """
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
-import time
-from typing import TYPE_CHECKING, Any
+import io
+import zipfile
+from collections import defaultdict
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import requests
 from django.conf import settings
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-from commodities.countries import english_name
 from commodities.models import CommodityProduction, Event, EventImpact
 
 from .base import EnrichmentProvider, EnrichmentResult, ImpactRecord
@@ -27,69 +34,143 @@ from .base import EnrichmentProvider, EnrichmentResult, ImpactRecord
 if TYPE_CHECKING:
     from commodities.models import Commodity, Country
 
-GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
+# GDELT 1.0 daily Events export: <base>/YYYYMMDD.export.CSV.zip
+GDELT_EVENTS_URL = "http://data.gdeltproject.org/events"
 USER_AGENT = "commodities-explorer/1.0 (research dashboard)"
 
-# GDELT language name → French "traduit …" phrase, for the translation note.
-_LANG_FR = {
-    "english": "de l'anglais",
-    "chinese": "du chinois",
-    "spanish": "de l'espagnol",
-    "portuguese": "du portugais",
-    "russian": "du russe",
-    "german": "de l'allemand",
-    "italian": "de l'italien",
-    "arabic": "de l'arabe",
-    "japanese": "du japonais",
-    "korean": "du coréen",
-    "hindi": "du hindi",
-    "turkish": "du turc",
-    "vietnamese": "du vietnamien",
-    "indonesian": "de l'indonésien",
-    "thai": "du thaï",
-    "dutch": "du néerlandais",
-    "polish": "du polonais",
+# Column indices in the GDELT 1.0 Event record (0-based; 58 tab-separated fields).
+_SQLDATE = 1
+_EVENT_ROOT = 28
+_QUADCLASS = 29
+_NUM_ARTICLES = 33
+_ACTIONGEO_CC = 51  # ActionGeo_CountryCode (FIPS 10-4, 2-letter)
+_DATEADDED = 56  # YYYYMMDD the event was ingested (= the file's day → freshness anchor)
+_SOURCEURL = 57  # last column
+_MIN_FIELDS = 58
+
+_QUAD_MATERIAL_CONFLICT = "4"
+
+# CAMEO EventRootCode → French label (QuadClass 4 = material conflict, roots 14–20).
+_ROOT_FR = {
+    "14": "Manifestations et protestations",
+    "15": "Démonstrations de force",
+    "16": "Rupture de relations",
+    "17": "Mesures coercitives",
+    "18": "Agressions",
+    "19": "Affrontements armés",
+    "20": "Violences de masse",
 }
+_ROOT_FALLBACK = "Tensions signalées"
+
+# FIPS 10-4 (GDELT ActionGeo_CountryCode) → ISO 3166-1 alpha-3.
+# Curated for commodity-producing countries; mind the FIPS/ISO false-friends
+# (FIPS CH=China, RS=Russia, AS=Australia, AU=Austria, GM=Germany, NI=Nigeria,
+# ZA=Zambia, SF=South Africa, MU=Oman, BM=Myanmar, CE=Sri Lanka…) — these were
+# verified against real ActionGeo_FullName values before being added.
+_FIPS_TO_ISO3 = {
+    # Americas
+    "US": "USA", "CA": "CAN", "MX": "MEX", "BR": "BRA", "AR": "ARG",
+    "CI": "CHL", "PE": "PER", "BL": "BOL", "VE": "VEN", "CO": "COL",
+    "EC": "ECU", "GY": "GUY", "NS": "SUR", "PA": "PRY", "PM": "PAN",
+    "CU": "CUB", "DR": "DOM", "JM": "JAM", "HO": "HND", "GT": "GTM",
+    "TD": "TTO", "UY": "URY",
+    # Europe
+    "FR": "FRA", "GM": "DEU", "UK": "GBR", "SP": "ESP", "IT": "ITA",
+    "PL": "POL", "PO": "PRT", "SW": "SWE", "SZ": "CHE", "NO": "NOR",
+    "FI": "FIN", "AU": "AUT", "EZ": "CZE", "LO": "SVK", "SI": "SVN",
+    "HU": "HUN", "RO": "ROU", "BU": "BGR", "GR": "GRC", "EN": "EST",
+    "LG": "LVA", "LH": "LTU", "UP": "UKR", "RS": "RUS", "BO": "BLR",
+    "RB": "SRB", "IC": "ISL", "EI": "IRL", "NL": "NLD", "BE": "BEL",
+    "AL": "ALB", "MK": "MKD", "MD": "MDA",
+    # Middle East / Caucasus / Central Asia
+    "IR": "IRN", "IS": "ISR", "SA": "SAU", "AE": "ARE", "IZ": "IRQ",
+    "KU": "KWT", "QA": "QAT", "MU": "OMN", "BA": "BHR", "JO": "JOR",
+    "LE": "LBN", "SY": "SYR", "YM": "YEM", "TU": "TUR", "AM": "ARM",
+    "GG": "GEO", "AJ": "AZE", "KZ": "KAZ", "TI": "TJK", "TX": "TKM",
+    "UZ": "UZB", "KG": "KGZ", "AF": "AFG", "PK": "PAK",
+    # Asia-Pacific
+    "CH": "CHN", "IN": "IND", "ID": "IDN", "JA": "JPN", "KS": "KOR",
+    "KN": "PRK", "TW": "TWN", "MY": "MYS", "TH": "THA", "VM": "VNM",
+    "RP": "PHL", "BM": "MMR", "CB": "KHM", "LA": "LAO", "BG": "BGD",
+    "CE": "LKA", "MG": "MNG", "NP": "NPL", "PP": "PNG", "NC": "NCL",
+    "AS": "AUS", "NZ": "NZL",
+    # Africa
+    "SF": "ZAF", "NI": "NGA", "NG": "NER", "CG": "COD", "CF": "COG",
+    "GH": "GHA", "GV": "GIN", "ML": "MLI", "MO": "MAR", "MA": "MDG",
+    "WA": "NAM", "ZA": "ZMB", "ZI": "ZWE", "TZ": "TZA", "MZ": "MOZ",
+    "AO": "AGO", "EG": "EGY", "LY": "LBY", "AG": "DZA", "TS": "TUN",
+    "SU": "SDN", "SG": "SEN", "IV": "CIV", "KE": "KEN", "UG": "UGA",
+    "ET": "ETH", "BC": "BWA", "WZ": "SWZ", "LT": "LSO", "MI": "MWI",
+    "CM": "CMR", "GB": "GAB", "CD": "TCD",
+}
+
+# Network session with retry/back-off (the VPS occasionally sees transient
+# "Network is unreachable" to public CDNs).
+_RETRY = Retry(
+    total=3,
+    connect=3,
+    read=3,
+    backoff_factor=1.5,
+    status_forcelist=(500, 502, 503, 504),
+    allowed_methods=frozenset({"GET"}),
+)
+
+
+def _session() -> requests.Session:
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=_RETRY)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def _to_int(value: str) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _parse_date(raw: str) -> dt.date | None:
+    try:
+        return dt.datetime.strptime(str(raw)[:8], "%Y%m%d").date()
+    except (ValueError, TypeError):
+        return None
 
 
 class GdeltProvider(EnrichmentProvider):
     key = "gdelt"
 
     @property
+    def base_url(self) -> str:
+        return getattr(settings, "GDELT_EVENTS_URL", GDELT_EVENTS_URL)
+
+    @property
+    def lookback_days(self) -> int:
+        # How many recent daily files to scan (starting yesterday). More days =
+        # broader, steadier coverage; one daily file ≈ 7 MB.
+        return getattr(settings, "GDELT_LOOKBACK_DAYS", 3)
+
+    @property
+    def min_articles(self) -> int:
+        # A producing country must accumulate at least this many material-conflict
+        # articles over the window to be flagged (tuned against real GDELT volume).
+        return getattr(settings, "GDELT_MIN_ARTICLES", 3000)
+
+    @property
     def max_countries(self) -> int:
+        # Top-N producing countries per commodity considered for a signal.
         return getattr(settings, "GDELT_MAX_COUNTRIES", 2)
 
     @property
-    def article_threshold(self) -> int:
-        return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 10)
-
-    @property
-    def max_retries(self) -> int:
-        # GDELT throttles hard (1 req / 5 s); one quick retry then give up, so a
-        # throttled run stays time-bounded (no long escalating back-off).
-        return getattr(settings, "GDELT_MAX_RETRIES", 2)
-
-    @property
     def timeout(self) -> int:
-        return getattr(settings, "GDELT_TIMEOUT", 20)
-
-    @property
-    def request_delay(self) -> float:
-        # Seconds between requests to respect the public rate limit.
-        return getattr(settings, "GDELT_REQUEST_DELAY", 6.0)
-
-    @property
-    def translate(self) -> bool:
-        return getattr(settings, "GDELT_TRANSLATE", True)
-
-    def __init__(self) -> None:
-        self._last_request_at = 0.0
+        return getattr(settings, "GDELT_TIMEOUT", 30)
 
     def fetch(self, commodities: list[Commodity]) -> EnrichmentResult:
-        result = EnrichmentResult()
-        year = dt.date.today().year
-        # Each producing country is queried once, then reused across commodities.
-        signal_cache: dict[str, dict[str, Any] | None] = {}
+        # Map each producing country (a top-N producer of some commodity) to the
+        # commodities it would impact, so one country signal fans out correctly.
+        commodities_by_iso3: dict[str, list[Commodity]] = defaultdict(list)
+        country_by_iso3: dict[str, Country] = {}
         for commodity in commodities:
             top = (
                 CommodityProduction.objects.filter(commodity=commodity)
@@ -97,20 +178,36 @@ class GdeltProvider(EnrichmentProvider):
                 .select_related("country")[: self.max_countries]
             )
             for production in top:
-                country = production.country
-                if country.iso3 not in signal_cache:
-                    signal_cache[country.iso3] = self._safe_signal(country)
-                signal = signal_cache[country.iso3]
-                if signal is None:
-                    continue
+                iso3 = production.country.iso3
+                commodities_by_iso3[iso3].append(commodity)
+                country_by_iso3[iso3] = production.country
+        if not commodities_by_iso3:
+            return EnrichmentResult()
+
+        # Only FIPS codes that resolve to one of our producing countries matter.
+        wanted_fips = {
+            fips: iso3 for fips, iso3 in _FIPS_TO_ISO3.items() if iso3 in commodities_by_iso3
+        }
+        signals = self._scan_conflicts(wanted_fips)
+
+        result = EnrichmentResult()
+        year = dt.date.today().year
+        for iso3, signal in signals.items():
+            country = country_by_iso3[iso3]
+            label = _ROOT_FR.get(signal["root"], _ROOT_FALLBACK)
+            description = (
+                f"{label} — {signal['articles']} articles recensés "
+                f"sur {self.lookback_days} j (source GDELT)."
+            )
+            for commodity in commodities_by_iso3[iso3]:
                 result.impacts.append(
                     ImpactRecord(
                         commodity=commodity,
                         event_title=f"Tensions en {country.name} ({year})",
                         event_type=Event.Type.WAR,
-                        start_date=signal.get("date") or dt.date.today(),
-                        description=signal.get("summary", ""),
-                        source_url=signal.get("url", ""),
+                        start_date=signal["date"] or dt.date.today(),
+                        description=description,
+                        source_url=signal["url"],
                         direction=EventImpact.Direction.UP,
                         magnitude=None,
                         source=self.key,
@@ -120,86 +217,53 @@ class GdeltProvider(EnrichmentProvider):
 
     # -- internals -----------------------------------------------------------
 
-    def _safe_signal(self, country: Country) -> dict[str, Any] | None:
-        """Per-country isolation: a failure for one country never aborts the rest."""
+    def _scan_conflicts(self, wanted_fips: dict[str, str]) -> dict[str, dict]:
+        """Aggregate material-conflict events per producing country over the window.
+
+        Per country we keep the running article total and the single most-covered
+        event (its CAMEO root → French label, its SOURCEURL, its date) as the
+        representative. Countries below ``min_articles`` are dropped.
+        """
+        agg: dict[str, dict] = {}
+        for file_date in self._recent_dates():
+            for row in self._iter_events(file_date):
+                if row[_QUADCLASS] != _QUAD_MATERIAL_CONFLICT:
+                    continue
+                iso3 = wanted_fips.get(row[_ACTIONGEO_CC])
+                if iso3 is None:
+                    continue
+                n = _to_int(row[_NUM_ARTICLES])
+                bucket = agg.get(iso3)
+                if bucket is None:
+                    bucket = agg[iso3] = {"articles": 0, "best": -1, "root": "", "url": "", "date": None}
+                bucket["articles"] += n
+                if n > bucket["best"]:
+                    bucket["best"] = n
+                    bucket["root"] = row[_EVENT_ROOT]
+                    bucket["url"] = row[_SOURCEURL]
+                    bucket["date"] = _parse_date(row[_DATEADDED]) or _parse_date(row[_SQLDATE])
+        return {iso3: b for iso3, b in agg.items() if b["articles"] >= self.min_articles}
+
+    def _iter_events(self, file_date: dt.date) -> Iterator[list[str]]:
+        """Stream the rows of one daily export; a missing/unreachable day is skipped."""
+        url = f"{self.base_url}/{file_date:%Y%m%d}.export.CSV.zip"
         try:
-            return self._conflict_signal(country)
-        except requests.RequestException:
-            return None
-
-    def _conflict_signal(self, country: Country) -> dict[str, Any] | None:
-        name_en = english_name(country.iso3, country.name)
-        payload = self._query_gdelt(name_en)
-        articles = payload.get("articles") or []
-        if len(articles) < self.article_threshold:
-            return None
-        lead = articles[0]  # most recent / most relevant, any language
-        dates = [d for a in articles if (d := self._parse_seendate(a.get("seendate")))]
-        return {
-            "summary": self._to_french(lead.get("title", ""), lead.get("language", "")),
-            "url": lead.get("url", ""),
-            "date": max(dates) if dates else dt.date.today(),
-        }
-
-    def _to_french(self, title: str, language: str) -> str:
-        """Translate a (possibly non-English) headline to French, with a 'traduit de…'
-        note. Best-effort: on failure or if already French, return the original."""
-        title = (title or "").strip()
-        if not title or not self.translate or (language or "").lower().startswith("fr"):
-            return title
-        translated = self._translate_fr(title)
-        if not translated or translated.strip() == title:
-            return title  # translation unavailable → original, no misleading note
-        src = _LANG_FR.get((language or "").lower(), "d'une langue étrangère")
-        return f"{translated} (traduit {src})"
-
-    @staticmethod
-    def _translate_fr(text: str) -> str | None:
-        try:
-            from deep_translator import GoogleTranslator
-
-            return GoogleTranslator(source="auto", target="fr").translate(text[:480])
-        except Exception:  # noqa: BLE001 — translation is best-effort
-            return None
-
-    @staticmethod
-    def _parse_seendate(raw: Any) -> dt.date | None:
-        """GDELT 'seendate' (e.g. 20260611T120000Z) → date; None if unparseable."""
-        try:
-            return dt.datetime.strptime(str(raw)[:8], "%Y%m%d").date()
-        except (ValueError, TypeError):
-            return None
-
-    def _query_gdelt(self, country_name: str) -> dict[str, Any]:
-        # Query all languages for coverage (the old `sourcelang:english` token was
-        # invalid and zeroed everything; `sourcelang:eng` works but English-only cut
-        # coverage too much). We pick an English headline client-side instead.
-        params = {
-            "query": f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions)',
-            "mode": "artlist",
-            "format": "json",
-            "maxrecords": 75,
-            "timespan": "1month",
-        }
-        headers = {"User-Agent": USER_AGENT}
-        for attempt in range(self.max_retries):
-            self._respect_rate_limit()
-            response = requests.get(GDELT_DOC_API, params=params, headers=headers, timeout=self.timeout)
-            if response.status_code == 429:
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.request_delay)  # brief back-off, then one retry
-                continue
+            response = _session().get(url, headers={"User-Agent": USER_AGENT}, timeout=self.timeout)
             response.raise_for_status()
-            try:
-                return response.json()
-            except ValueError:
-                return {}  # GDELT occasionally returns an empty/non-JSON body
-        return {}  # still rate-limited after retries — treat as "no signal"
-
-    def _respect_rate_limit(self) -> None:
-        if self.request_delay <= 0:
+        except requests.RequestException:
+            return  # not yet published, gap, or transient network error → skip
+        try:
+            archive = zipfile.ZipFile(io.BytesIO(response.content))
+            name = archive.namelist()[0]
+        except (zipfile.BadZipFile, IndexError):
             return
-        elapsed = time.monotonic() - self._last_request_at
-        if elapsed < self.request_delay:
-            time.sleep(self.request_delay - elapsed)
-        self._last_request_at = time.monotonic()
+        with archive.open(name) as handle:
+            reader = csv.reader(io.TextIOWrapper(handle, encoding="utf-8", errors="replace"), delimiter="\t")
+            for row in reader:
+                if len(row) >= _MIN_FIELDS:
+                    yield row
+
+    def _recent_dates(self) -> list[dt.date]:
+        # Start at yesterday: today's daily file is published after the day ends.
+        today = dt.date.today()
+        return [today - dt.timedelta(days=offset) for offset in range(1, self.lookback_days + 1)]

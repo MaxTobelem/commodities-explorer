@@ -187,11 +187,13 @@ COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", Tr
 # update_prices chunks requests accordingly (1 slot reserved for EUR conversion).
 COMMODITIES_API_MAX_SYMBOLS = int(env("COMMODITIES_API_MAX_SYMBOLS", "10"))
 
-# GDELT (events) — pacing for the public rate limit.
-GDELT_REQUEST_DELAY = float(env("GDELT_REQUEST_DELAY", "6"))
-GDELT_ARTICLE_THRESHOLD = int(env("GDELT_ARTICLE_THRESHOLD", "10"))
-# Translate event headlines to French (free Google endpoint via deep-translator).
-GDELT_TRANSLATE = env("GDELT_TRANSLATE", "true").lower() not in ("0", "false", "no")
+# GDELT (events) — bulk daily Events export (no rate-limited API).
+# Scan the last N daily files; flag a producing country once its material-conflict
+# coverage over the window crosses GDELT_MIN_ARTICLES (tuned against real volume).
+GDELT_EVENTS_URL = env("GDELT_EVENTS_URL", "http://data.gdeltproject.org/events")
+GDELT_LOOKBACK_DAYS = int(env("GDELT_LOOKBACK_DAYS", "3"))
+GDELT_MIN_ARTICLES = int(env("GDELT_MIN_ARTICLES", "3000"))
+GDELT_TIMEOUT = int(env("GDELT_TIMEOUT", "30"))
 
 # USGS (reserves/production) — bump USGS_MCS_ITEM_ID to the new ScienceBase item each year.
 USGS_ENABLED = env_bool("USGS_ENABLED", True)

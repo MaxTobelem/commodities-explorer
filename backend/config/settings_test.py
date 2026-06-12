@@ -13,6 +13,6 @@ DATABASES = {
     }
 }
 
-# No real network pacing or translation during tests.
-GDELT_REQUEST_DELAY = 0
-GDELT_TRANSLATE = False
+# Deterministic GDELT tests: scan a single day, low article threshold.
+GDELT_LOOKBACK_DAYS = 1
+GDELT_MIN_ARTICLES = 50

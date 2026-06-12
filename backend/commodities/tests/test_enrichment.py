@@ -1,4 +1,7 @@
 import datetime as dt
+import io
+import re
+import zipfile
 from decimal import Decimal
 
 import pytest
@@ -14,7 +17,7 @@ from commodities.datasources.base import (
     ReserveRecord,
     UsageRecord,
 )
-from commodities.datasources.gdelt import GDELT_DOC_API, GdeltProvider
+from commodities.datasources.gdelt import GDELT_EVENTS_URL, GdeltProvider
 from commodities.datasources.owid import OWID_URL, OwidProvider
 from commodities.datasources.usgs import UsgsProvider
 from commodities.models import (
@@ -112,19 +115,52 @@ def test_enrich_data_isolates_provider_failure(monkeypatch):
     assert CommodityUsage.objects.filter(commodity=cobalt).count() == 1
 
 
-@responses.activate
-def test_gdelt_links_conflict_to_commodity_via_producer():
-    cobalt = make_cobalt()
-    drc = Country.objects.create(name="RD Congo", iso3="COD")
+# --- GDELT (bulk daily Events export) --------------------------------------
+
+GDELT_EVENTS_RE = re.compile(re.escape(GDELT_EVENTS_URL) + r"/\d{8}\.export\.CSV\.zip")
+
+
+def _gdelt_row(action_fips, *, quad="4", root="19", articles="150", url="http://news/x",
+               dateadded="20260611"):
+    """One 58-field GDELT 1.0 Event record (tab-separated)."""
+    row = [""] * 58
+    row[1] = "20260101"  # SQLDATE
+    row[28] = root  # EventRootCode
+    row[29] = quad  # QuadClass (4 = material conflict)
+    row[33] = articles  # NumArticles
+    row[50] = f"Somewhere, {action_fips}"  # ActionGeo_FullName
+    row[51] = action_fips  # ActionGeo_CountryCode (FIPS)
+    row[56] = dateadded  # DATEADDED (= file day)
+    row[57] = url  # SOURCEURL
+    return "\t".join(row)
+
+
+def _gdelt_zip(rows):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("20260611.export.CSV", "\n".join(rows) + "\n")
+    return buf.getvalue()
+
+
+def _producing(commodity, iso3, name):
+    country = Country.objects.create(name=name, iso3=iso3)
     CommodityProduction.objects.create(
-        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
+        commodity=commodity, country=country, year=2024, production_t=Decimal("130000")
     )
-    responses.add(
-        responses.GET,
-        GDELT_DOC_API,
-        json={"articles": [{"title": f"Conflit {i}", "url": "http://x"} for i in range(12)]},
-        status=200,
-    )
+    return country
+
+
+@responses.activate
+def test_gdelt_flags_producer_country_in_material_conflict():
+    cobalt = make_cobalt()
+    _producing(cobalt, "COD", "RD Congo")  # FIPS CG → COD
+    rows = [
+        _gdelt_row("CG", root="19", articles="120"),  # armed clashes (most covered)
+        _gdelt_row("CG", root="14", articles="40"),  # protests, same country
+        _gdelt_row("CG", quad="1", articles="999"),  # cooperation → ignored
+        _gdelt_row("US", root="19", articles="500"),  # not a producer here → ignored
+    ]
+    responses.add(responses.GET, GDELT_EVENTS_RE, body=_gdelt_zip(rows), status=200)
 
     result = GdeltProvider().fetch([cobalt])
 
@@ -133,87 +169,61 @@ def test_gdelt_links_conflict_to_commodity_via_producer():
     assert impact.commodity == cobalt
     assert "RD Congo" in impact.event_title
     assert impact.direction == EventImpact.Direction.UP
+    assert impact.source_url == "http://news/x"
+    assert "Affrontements armés" in impact.description  # root 19 = most-covered event
+    assert "160 articles" in impact.description  # 120 + 40; cooperation row excluded
 
 
 @responses.activate
-def test_gdelt_ignores_low_signal():
+def test_gdelt_ignores_low_conflict():
     cobalt = make_cobalt()
-    drc = Country.objects.create(name="RD Congo", iso3="COD")
-    CommodityProduction.objects.create(
-        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
-    )
-    responses.add(responses.GET, GDELT_DOC_API, json={"articles": [{"title": "x"}]}, status=200)
-
-    result = GdeltProvider().fetch([cobalt])
-
-    assert result.impacts == []
-
-
-@responses.activate
-def test_gdelt_handles_rate_limit_gracefully():
-    cobalt = make_cobalt()
-    drc = Country.objects.create(name="RD Congo", iso3="COD")
-    CommodityProduction.objects.create(
-        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
-    )
-    # GDELT returns plain text (not JSON) with HTTP 429 when rate-limited.
+    _producing(cobalt, "COD", "RD Congo")
     responses.add(
-        responses.GET,
-        GDELT_DOC_API,
-        body="Please limit requests to one every 5 seconds.",
-        status=429,
+        responses.GET, GDELT_EVENTS_RE, body=_gdelt_zip([_gdelt_row("CG", articles="20")]), status=200
     )
 
-    result = GdeltProvider().fetch([cobalt])
-
-    assert result.impacts == []  # no crash, no bogus impact
+    assert GdeltProvider().fetch([cobalt]).impacts == []  # 20 < threshold (50 in tests)
 
 
 @responses.activate
-def test_gdelt_dates_event_to_latest_article():
+def test_gdelt_handles_missing_daily_file():
     cobalt = make_cobalt()
-    drc = Country.objects.create(name="RD Congo", iso3="COD")
-    CommodityProduction.objects.create(
-        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
+    _producing(cobalt, "COD", "RD Congo")
+    responses.add(responses.GET, GDELT_EVENTS_RE, status=404)
+
+    assert GdeltProvider().fetch([cobalt]).impacts == []  # missing file → no crash, no impact
+
+
+@responses.activate
+def test_gdelt_dates_event_from_dateadded():
+    cobalt = make_cobalt()
+    _producing(cobalt, "COD", "RD Congo")
+    responses.add(
+        responses.GET, GDELT_EVENTS_RE,
+        body=_gdelt_zip([_gdelt_row("CG", articles="150", dateadded="20260610")]), status=200,
     )
-    arts = [{"title": f"News {i}", "url": "http://x", "seendate": "20260605T120000Z"} for i in range(11)]
-    arts.append({"title": "Latest", "url": "http://y", "seendate": "20260611T120000Z"})
-    responses.add(responses.GET, GDELT_DOC_API, json={"articles": arts}, status=200)
 
     result = GdeltProvider().fetch([cobalt])
 
-    assert len(result.impacts) == 1
-    assert result.impacts[0].start_date == dt.date(2026, 6, 11)  # latest seendate, not Jan 1
+    assert result.impacts[0].start_date == dt.date(2026, 6, 10)  # ingest day, never Jan 1
 
 
 @responses.activate
 def test_refresh_events_applies_only_gdelt_impacts():
     cobalt = make_cobalt()
-    drc = Country.objects.create(name="RD Congo", iso3="COD")
-    CommodityProduction.objects.create(
-        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
-    )
+    _producing(cobalt, "COD", "RD Congo")
     responses.add(
-        responses.GET,
-        GDELT_DOC_API,
-        json={"articles": [{"title": f"c{i}", "url": "http://x", "seendate": "20260611T000000Z"} for i in range(12)]},
-        status=200,
+        responses.GET, GDELT_EVENTS_RE,
+        body=_gdelt_zip([_gdelt_row("CG", articles="150", dateadded="20260611")]), status=200,
     )
 
     run = services.refresh_events()
 
     assert run.status == ImportRun.Status.SUCCESS
     impact = EventImpact.objects.select_related("event").get(commodity=cobalt)
-    assert impact.event.start_date == dt.date(2026, 6, 11)  # dated to the article, not Jan 1
-
-
-def test_gdelt_translates_headline_to_french(settings, monkeypatch):
-    settings.GDELT_TRANSLATE = True
-    monkeypatch.setattr(GdeltProvider, "_translate_fr", staticmethod(lambda text: "Titre en français"))
-    provider = GdeltProvider()
-
-    assert provider._to_french("English headline", "English") == "Titre en français (traduit de l'anglais)"
-    assert provider._to_french("Déjà en français", "French") == "Déjà en français"  # not re-translated
+    assert impact.event.start_date == dt.date(2026, 6, 11)
+    assert impact.event.source_url == "http://news/x"
+    assert impact.needs_review is True
 
 
 USGS_SAMPLE = (
