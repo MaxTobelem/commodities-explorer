@@ -148,7 +148,7 @@ def backfill_prices(days: int = 90) -> ImportRun:
     return run
 
 
-def backfill_daily(days: int = 120) -> ImportRun:
+def backfill_daily(days: int = 30) -> ImportRun:
     """Backfill recent DAILY prices from Commodities-API for commodities carrying an
     ``api_symbol`` — fills the gap between the monthly World Bank history and today."""
     from django.conf import settings
@@ -183,10 +183,16 @@ def backfill_daily(days: int = 120) -> ImportRun:
                 unique_fields=["commodity", "date", "source"],
                 update_fields=["price_usd", "price_eur"],
             )
+        # /timeseries is one symbol per request, split into ≤max_days windows; report
+        # the resulting request count so API-quota usage stays visible in the audit.
+        max_days = getattr(provider, "timeseries_max_days", 30)
+        windows = (days + max_days + 1) // (max_days + 1)
+        n_requests = (len(commodities) + 1) * windows
         run.finish(
             ImportRun.Status.SUCCESS,
-            f"Backfill quotidien {start}→{end} : "
-            f"{len(to_upsert)} cours Commodities-API importés.",
+            f"Backfill quotidien {start}→{end} : {len(to_upsert)} cours "
+            f"Commodities-API importés ({windows} fenêtre(s) × {len(commodities) + 1} "
+            f"symboles ≈ {n_requests} requêtes API).",
         )
     except Exception as exc:  # noqa: BLE001
         run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")

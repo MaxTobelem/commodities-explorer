@@ -87,6 +87,11 @@ class CommoditiesApiProvider(PriceProvider):
         # Plan-dependent cap on symbols per request (PRO=10, PRO PLUS=15…).
         return getattr(settings, "COMMODITIES_API_MAX_SYMBOLS", 10)
 
+    @property
+    def timeseries_max_days(self) -> int:
+        # Plan-dependent cap on the span of a single /timeseries request (~30 days).
+        return getattr(settings, "COMMODITIES_API_TIMESERIES_MAX_DAYS", 30)
+
     # -- public --------------------------------------------------------------
 
     def fetch_latest(self, commodities: list[Commodity]) -> list[PriceData]:
@@ -143,14 +148,15 @@ class CommoditiesApiProvider(PriceProvider):
         if not symbol_to_commodity:
             return []
 
-        # The timeseries endpoint accepts only ONE symbol per request, so fetch each
-        # commodity individually — plus EUR once for the per-date USD→EUR conversion.
-        eur_by_date = self._timeseries_rates("EUR", start, end)
+        # The timeseries endpoint accepts only ONE symbol per request AND caps the
+        # span of each request (~30 days), so fetch every commodity window by window
+        # — plus EUR once for the per-date USD→EUR conversion.
+        eur_by_date = self._timeseries_rates_windowed("EUR", start, end)
 
         results: list[PriceData] = []
         for symbol, commodity in symbol_to_commodity.items():
             factor = self._unit_factor(symbol)
-            for date_str, rate in self._timeseries_rates(symbol, start, end).items():
+            for date_str, rate in self._timeseries_rates_windowed(symbol, start, end).items():
                 price_usd = self._price_from_rate(rate)
                 if price_usd is None:
                     continue
@@ -187,11 +193,7 @@ class CommoditiesApiProvider(PriceProvider):
             "symbols": ",".join([*symbols, "EUR"]),
         }
         response = requests.get(f"{self.base_url}/latest", params=params, timeout=self.timeout)
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("success") is False:
-            raise RuntimeError(f"Commodities-API erreur: {payload.get('error')}")
-        return payload
+        return self._payload_or_raise(response)
 
     def _request_timeseries(
         self, symbols: list[str], start: dt.date, end: dt.date
@@ -210,11 +212,7 @@ class CommoditiesApiProvider(PriceProvider):
         response = requests.get(
             f"{self.base_url}/timeseries", params=params, timeout=self.timeout
         )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("success") is False:
-            raise RuntimeError(f"Commodities-API erreur: {payload.get('error')}")
-        return payload
+        return self._payload_or_raise(response)
 
     def _timeseries_rates(self, symbol: str, start: dt.date, end: dt.date) -> dict[str, Any]:
         """Single-symbol time series → {date: rate}. Upstream allows one symbol only."""
@@ -223,6 +221,25 @@ class CommoditiesApiProvider(PriceProvider):
         for date_str, day_rates in self._extract_rates(payload).items():
             if isinstance(day_rates, dict) and symbol in day_rates:
                 out[date_str] = day_rates[symbol]
+        return out
+
+    def _timeseries_rates_windowed(
+        self, symbol: str, start: dt.date, end: dt.date
+    ) -> dict[str, Any]:
+        """``_timeseries_rates`` split into ≤``timeseries_max_days`` windows, merged.
+
+        The upstream rejects a /timeseries whose span exceeds the plan cap
+        (``timeframe_too_long``), so a long backfill is fetched window by window.
+        Cost is one request per window, per symbol.
+        """
+        out: dict[str, Any] = {}
+        span = dt.timedelta(days=self.timeseries_max_days)
+        one = dt.timedelta(days=1)
+        cur = start
+        while cur <= end:
+            win_end = min(cur + span, end)
+            out.update(self._timeseries_rates(symbol, cur, win_end))
+            cur = win_end + one
         return out
 
     @staticmethod
@@ -241,6 +258,28 @@ class CommoditiesApiProvider(PriceProvider):
             except ValueError:
                 pass
         return dt.date.today()
+
+    @staticmethod
+    def _payload_or_raise(response: requests.Response) -> dict[str, Any]:
+        """Return the JSON payload, surfacing the API's own error on failure.
+
+        Commodities-API reports failures in the body (``{"success": false, "error":
+        ...}``, the error being a string or a ``{code,type,info}`` object) — raised
+        here so callers see e.g. ``timeframe_too_long`` rather than a bare HTTP 400.
+        """
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if isinstance(payload, dict) and payload.get("success") is False:
+            err = payload.get("error")
+            if isinstance(err, dict):
+                detail = " ".join(str(err[k]) for k in ("code", "type", "info") if err.get(k))
+            else:
+                detail = str(err) if err else f"HTTP {response.status_code}"
+            raise RuntimeError(f"Commodities-API erreur: {detail}")
+        response.raise_for_status()
+        return payload
 
     @staticmethod
     def _to_decimal(value: Any) -> Decimal | None:

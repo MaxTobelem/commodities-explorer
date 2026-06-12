@@ -1,6 +1,7 @@
 import datetime as dt
 import io
 from decimal import Decimal
+from urllib.parse import parse_qs, urlparse
 
 import openpyxl
 import pytest
@@ -316,6 +317,45 @@ def test_backfill_daily_service_imports_commodities_api_history(settings):
     assert run.status == ImportRun.Status.SUCCESS
     assert PriceQuote.objects.filter(source="commodities_api").count() == 2
     assert "cours Commodities-API importés" in run.message
+
+
+@responses.activate
+def test_provider_fetch_timeseries_windows_long_range(settings):
+    """A range beyond the plan's per-request cap is split into ≤30-day windows."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.COMMODITIES_API_TIMESERIES_MAX_DAYS = 30
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": True, "rates": {"2024-06-01": {"XAU": 0.0005, "EUR": 0.9}}},
+        status=200,
+    )
+    au = make_commodity("Or", "XAU")
+
+    # 70-day span → 3 windows, fetched for EUR and XAU → 6 requests, none over the cap.
+    CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 6, 1), dt.date(2024, 8, 10))
+
+    assert len(responses.calls) == 6
+    for call in responses.calls:
+        q = parse_qs(urlparse(call.request.url).query)
+        span = dt.date.fromisoformat(q["end_date"][0]) - dt.date.fromisoformat(q["start_date"][0])
+        assert span.days <= 30
+
+
+@responses.activate
+def test_provider_surfaces_api_error_body(settings):
+    """A failed call raises the API's own error (timeframe_too_long), not a bare HTTP 400."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": False, "error": {"code": 400, "type": "timeframe_too_long", "info": "x"}},
+        status=400,
+    )
+    au = make_commodity("Or", "XAU")
+
+    with pytest.raises(RuntimeError, match="timeframe_too_long"):
+        CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 1, 1), dt.date(2024, 1, 2))
 
 
 def _wb_xlsx_bytes() -> bytes:
