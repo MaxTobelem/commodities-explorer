@@ -69,9 +69,15 @@ export function CommodityDetail() {
   const c = commodity.data
 
   const cutoff = RANGES.find((r) => r.key === range)?.days ?? 0
-  const filteredPrices = (prices.data ?? []).filter((p) => {
+  const allPrices = prices.data ?? []
+  // Anchor the window on the latest available point, not "today", so a series that
+  // ends in the past (e.g. monthly World Bank data, last point months ago) still
+  // renders its recent history instead of an empty chart.
+  const anchorMs = allPrices.reduce((m, p) => Math.max(m, new Date(p.date).getTime()), 0)
+  const anchor = anchorMs ? new Date(anchorMs) : new Date()
+  const filteredPrices = allPrices.filter((p) => {
     if (!cutoff) return true
-    const limit = new Date()
+    const limit = new Date(anchor)
     limit.setDate(limit.getDate() - cutoff)
     return new Date(p.date) >= limit
   })
