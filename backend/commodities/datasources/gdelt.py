@@ -40,7 +40,8 @@ class GdeltProvider(EnrichmentProvider):
 
     @property
     def article_threshold(self) -> int:
-        return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 10)
+        # English-language articles only (sourcelang:eng), so a lower bar than all-langs.
+        return getattr(settings, "GDELT_ARTICLE_THRESHOLD", 6)
 
     @property
     def max_retries(self) -> int:
@@ -82,7 +83,7 @@ class GdeltProvider(EnrichmentProvider):
                         commodity=commodity,
                         event_title=f"Tensions en {country.name} ({year})",
                         event_type=Event.Type.WAR,
-                        start_date=dt.date(year, 1, 1),
+                        start_date=signal.get("date") or dt.date.today(),
                         description=signal.get("summary", ""),
                         source_url=signal.get("url", ""),
                         direction=EventImpact.Direction.UP,
@@ -108,14 +109,31 @@ class GdeltProvider(EnrichmentProvider):
         if len(articles) < self.article_threshold:
             return None
         first = articles[0]
-        return {"summary": first.get("title", ""), "url": first.get("url", "")}
+        dates = [d for a in articles if (d := self._parse_seendate(a.get("seendate")))]
+        return {
+            "summary": first.get("title", ""),
+            "url": first.get("url", ""),
+            "date": max(dates) if dates else dt.date.today(),
+        }
+
+    @staticmethod
+    def _parse_seendate(raw: Any) -> dt.date | None:
+        """GDELT 'seendate' (e.g. 20260611T120000Z) → date; None if unparseable."""
+        try:
+            return dt.datetime.strptime(str(raw)[:8], "%Y%m%d").date()
+        except (ValueError, TypeError):
+            return None
 
     def _query_gdelt(self, country_name: str) -> dict[str, Any]:
-        # No sourcelang filter: the English query terms already bias toward English
-        # news, and GDELT's `sourcelang:english` token returns nothing (it expects
-        # `eng`, and even that over-filters), which silently zeroed every signal.
+        # `sourcelang:eng` restricts to English-language news so headlines are readable
+        # in the FR UI. The old code used the *invalid* token `sourcelang:english`,
+        # which silently returned nothing and zeroed every signal; `eng` is the correct
+        # GDELT language code (verified live: ~15 English hits for China).
         params = {
-            "query": f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions)',
+            "query": (
+                f'"{country_name}" (conflict OR mining OR mine OR supply OR sanctions) '
+                "sourcelang:eng"
+            ),
             "mode": "artlist",
             "format": "json",
             "maxrecords": 75,

@@ -260,6 +260,31 @@ def enrich_data(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
     return run
 
 
+def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
+    """Refresh only the GDELT events/impacts — lighter than enrich_data, for a more
+    frequent cron (news moves faster than the annual USGS/RMIS data)."""
+    run = ImportRun.objects.create(kind=kind)
+    try:
+        commodities = list(Commodity.objects.filter(is_active=True))
+        merged = EnrichmentResult()
+        errors: list[str] = []
+        for provider in get_enrichment_providers():
+            if provider.key != "gdelt":
+                continue
+            try:
+                merged.extend(provider.fetch(commodities))
+            except Exception as exc:  # noqa: BLE001 — isolate the source failure
+                errors.append(f"{provider.key}: {type(exc).__name__}")
+        counts = _apply_enrichment(merged)
+        message = f"{counts['impacts']} impacts (GDELT)."
+        if errors:
+            message += " Avertissements: " + "; ".join(errors)
+        run.finish(ImportRun.Status.SUCCESS, message)
+    except Exception as exc:  # noqa: BLE001
+        run.finish(ImportRun.Status.ERROR, f"{type(exc).__name__}: {exc}")
+    return run
+
+
 @transaction.atomic
 def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
     counts = {"production": 0, "reserves": 0, "usages": 0, "compositions": 0, "impacts": 0}
@@ -324,7 +349,9 @@ def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
         counts["compositions"] += 1
 
     for rec in result.impacts:
-        event, _ = Event.objects.get_or_create(
+        # update_or_create (not get_or_create) so re-runs refresh the date/description
+        # — GDELT events are living signals, not rows frozen at first import.
+        event, _ = Event.objects.update_or_create(
             slug=slugify(rec.event_title),
             defaults={
                 "title": rec.event_title,

@@ -169,6 +169,44 @@ def test_gdelt_handles_rate_limit_gracefully():
     assert result.impacts == []  # no crash, no bogus impact
 
 
+@responses.activate
+def test_gdelt_dates_event_to_latest_article():
+    cobalt = make_cobalt()
+    drc = Country.objects.create(name="RD Congo", iso3="COD")
+    CommodityProduction.objects.create(
+        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
+    )
+    arts = [{"title": f"News {i}", "url": "http://x", "seendate": "20260605T120000Z"} for i in range(7)]
+    arts.append({"title": "Latest", "url": "http://y", "seendate": "20260611T120000Z"})
+    responses.add(responses.GET, GDELT_DOC_API, json={"articles": arts}, status=200)
+
+    result = GdeltProvider().fetch([cobalt])
+
+    assert len(result.impacts) == 1
+    assert result.impacts[0].start_date == dt.date(2026, 6, 11)  # latest seendate, not Jan 1
+
+
+@responses.activate
+def test_refresh_events_applies_only_gdelt_impacts():
+    cobalt = make_cobalt()
+    drc = Country.objects.create(name="RD Congo", iso3="COD")
+    CommodityProduction.objects.create(
+        commodity=cobalt, country=drc, year=2024, production_t=Decimal("130000")
+    )
+    responses.add(
+        responses.GET,
+        GDELT_DOC_API,
+        json={"articles": [{"title": f"c{i}", "url": "http://x", "seendate": "20260611T000000Z"} for i in range(8)]},
+        status=200,
+    )
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    impact = EventImpact.objects.select_related("event").get(commodity=cobalt)
+    assert impact.event.start_date == dt.date(2026, 6, 11)  # dated to the article, not Jan 1
+
+
 USGS_SAMPLE = (
     "SOURCE,COMMODITY,COUNTRY,TYPE,UNIT_MEAS,PROD_2023,PROD_EST_ 2024,PROD_NOTES,"
     "CAP_2023,CAP_EST_ 2024,CAP_NOTES,RESERVES_2024,RESERVE_NOTES\n"
