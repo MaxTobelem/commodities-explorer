@@ -27,6 +27,13 @@ def _no_throttle(settings):
     settings.COMMODITIES_API_MIN_REQUEST_INTERVAL = 0
 
 
+@pytest.fixture(autouse=True)
+def _pin_worldbank(settings):
+    # Use the WB xlsx URL each test sets explicitly; landing-page auto-discovery is
+    # exercised only by the dedicated tests that opt back in.
+    settings.WORLD_BANK_AUTODISCOVER = False
+
+
 def make_commodity(name, symbol, **kwargs):
     # api_symbol defaults to the same ticker so Commodities-API tests resolve it;
     # pass api_symbol="" to exercise the World Bank fallback lane.
@@ -421,6 +428,49 @@ def test_worldbank_provider_fetch_latest(settings):
     assert results["Aluminum"].price_eur == Decimal("2587.9770")  # × 0.9
     assert results["Gold"].price_usd == Decimal("4309.2300")
     assert str(results["Aluminum"].date) == "2025-12-01"
+
+
+@responses.activate
+def test_worldbank_autodiscovers_current_xlsx_url(settings):
+    """The provider scrapes the WB landing page for the live Pink Sheet link."""
+    settings.WORLD_BANK_AUTODISCOVER = True
+    settings.WORLD_BANK_PAGE_URL = "http://test/commodity-markets"
+    settings.WORLD_BANK_XLSX_URL = "http://test/PINNED-stale.xlsx"  # must NOT be used
+    settings.EUR_USD_RATE = "0.9"
+    current = (
+        "https://thedocs.worldbank.org/en/doc/abc-0050012026/related/"
+        "CMO-Historical-Data-Monthly.xlsx"
+    )
+    responses.add(
+        responses.GET,
+        "http://test/commodity-markets",
+        body=f'<a href="{current}">Monthly prices (XLS)</a>',
+        status=200,
+    )
+    responses.add(responses.GET, current, body=_wb_xlsx_bytes(), status=200)
+    alu = make_commodity("Aluminium", "Aluminum", api_symbol="")
+
+    results = {p.commodity.price_symbol: p for p in WorldBankProvider().fetch_latest([alu])}
+
+    assert "Aluminum" in results  # priced via the discovered link
+    assert any("abc-0050012026" in c.request.url for c in responses.calls)
+    assert all("PINNED-stale" not in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_worldbank_falls_back_to_pinned_url_when_discovery_fails(settings):
+    """If the landing page is unreachable, fall back to the pinned xlsx URL."""
+    settings.WORLD_BANK_AUTODISCOVER = True
+    settings.WORLD_BANK_PAGE_URL = "http://test/commodity-markets"
+    settings.WORLD_BANK_XLSX_URL = "http://test/pinned.xlsx"
+    settings.EUR_USD_RATE = "0.9"
+    responses.add(responses.GET, "http://test/commodity-markets", status=503)
+    responses.add(responses.GET, "http://test/pinned.xlsx", body=_wb_xlsx_bytes(), status=200)
+    alu = make_commodity("Aluminium", "Aluminum", api_symbol="")
+
+    results = {p.commodity.price_symbol: p for p in WorldBankProvider().fetch_latest([alu])}
+
+    assert "Aluminum" in results  # fell back to the pinned URL and still priced
 
 
 @responses.activate

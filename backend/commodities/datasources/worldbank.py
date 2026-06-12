@@ -23,12 +23,23 @@ from .base import PriceData, PriceProvider
 if TYPE_CHECKING:
     from commodities.models import Commodity
 
+DEFAULT_PAGE_URL = "https://www.worldbank.org/en/research/commodity-markets"
+# Fallback direct link used only if the landing page can't be scraped — kept fresh.
 DEFAULT_URL = (
-    "https://thedocs.worldbank.org/en/doc/18675f1d1639c7a34d463f59263ba0a2-0050012025/"
+    "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/"
     "related/CMO-Historical-Data-Monthly.xlsx"
 )
 _QUANT = Decimal("0.0001")
 _MONTH_RE = re.compile(r"^(\d{4})M(\d{2})$")
+# WB re-issues this xlsx under a new release-specific URL every month; discover the
+# current one from the landing page rather than freezing on a pinned snapshot.
+_XLSX_LINK_RE = re.compile(
+    r"https://thedocs\.worldbank\.org/[^\"'\s]+?CMO-Historical-Data-Monthly\.xlsx"
+)
+_BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 
 def _clean(value: object) -> str:
@@ -42,6 +53,15 @@ class WorldBankProvider(PriceProvider):
     @property
     def url(self) -> str:
         return getattr(settings, "WORLD_BANK_XLSX_URL", DEFAULT_URL)
+
+    @property
+    def page_url(self) -> str:
+        return getattr(settings, "WORLD_BANK_PAGE_URL", DEFAULT_PAGE_URL)
+
+    @property
+    def autodiscover(self) -> bool:
+        # Discover the current xlsx link each run; disable to force WORLD_BANK_XLSX_URL.
+        return getattr(settings, "WORLD_BANK_AUTODISCOVER", True)
 
     @property
     def timeout(self) -> int:
@@ -84,11 +104,33 @@ class WorldBankProvider(PriceProvider):
             source=self.key,
         )
 
+    def _resolve_url(self) -> str:
+        """Current Pink Sheet xlsx link, scraped from the WB landing page.
+
+        WB re-issues the direct xlsx URL (release-specific doc id) every month, so a
+        pinned link freezes the data. We read the landing page and extract the live
+        'CMO-Historical-Data-Monthly.xlsx' link, falling back to the pinned URL
+        (``settings.WORLD_BANK_XLSX_URL``) when discovery fails.
+        """
+        if not self.autodiscover:
+            return self.url
+        try:
+            response = requests.get(
+                self.page_url, timeout=self.timeout, headers={"User-Agent": _BROWSER_UA}
+            )
+            response.raise_for_status()
+            match = _XLSX_LINK_RE.search(response.text)
+            if match:
+                return match.group(0)
+        except requests.RequestException:
+            pass
+        return self.url
+
     def _load_series(self, wb_names: list[str]) -> dict[str, list[tuple[dt.date, Decimal]]]:
         wanted = {_clean(n) for n in wb_names if n}
         if not wanted:
             return {}
-        response = requests.get(self.url, timeout=self.timeout)
+        response = requests.get(self._resolve_url(), timeout=self.timeout)
         response.raise_for_status()
         workbook = openpyxl.load_workbook(io.BytesIO(response.content), read_only=True, data_only=True)
         sheet = workbook["Monthly Prices"]
