@@ -20,6 +20,13 @@ LATEST_URL = "https://api.commodities-api.com/api/latest"
 TIMESERIES_URL = "https://api.commodities-api.com/api/timeseries"
 
 
+@pytest.fixture(autouse=True)
+def _no_throttle(settings):
+    # The provider paces calls (≥1s) to respect the live 60 req/min cap; disable that
+    # here so the mocked HTTP tests don't actually sleep.
+    settings.COMMODITIES_API_MIN_REQUEST_INTERVAL = 0
+
+
 def make_commodity(name, symbol, **kwargs):
     # api_symbol defaults to the same ticker so Commodities-API tests resolve it;
     # pass api_symbol="" to exercise the World Bank fallback lane.
@@ -320,6 +327,31 @@ def test_backfill_daily_service_imports_commodities_api_history(settings):
 
 
 @responses.activate
+def test_backfill_daily_keeps_partial_progress_on_rate_limit(settings):
+    """A 429 mid-run must not discard the points (and requests) already fetched."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.COMMODITIES_API_TIMESERIES_MAX_DAYS = 30
+    ok = {"success": True, "rates": {"2024-06-01": {"XAU": 0.0005, "WHEAT": 0.004, "EUR": 0.9}}}
+    responses.add(responses.GET, TIMESERIES_URL, json=ok, status=200)  # EUR window
+    responses.add(responses.GET, TIMESERIES_URL, json=ok, status=200)  # 1st symbol window
+    responses.add(  # 2nd symbol window → per-minute cap
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": False, "error": {"code": 429, "type": "rate_limit_exceeded", "info": "x"}},
+        status=429,
+    )
+    make_commodity("Or", "XAU")
+    make_commodity("Blé", "WHEAT")
+
+    run = services.backfill_daily(days=10)
+
+    assert run.status == ImportRun.Status.ERROR
+    assert "rate_limit_exceeded" in run.message
+    # The symbol fetched before the cap was persisted → progress (and its request) kept.
+    assert PriceQuote.objects.filter(source="commodities_api").count() == 1
+
+
+@responses.activate
 def test_provider_fetch_timeseries_windows_long_range(settings):
     """A range beyond the plan's per-request cap is split into ≤30-day windows."""
     settings.COMMODITIES_API_KEY = "test-key"
@@ -333,7 +365,7 @@ def test_provider_fetch_timeseries_windows_long_range(settings):
     au = make_commodity("Or", "XAU")
 
     # 70-day span → 3 windows, fetched for EUR and XAU → 6 requests, none over the cap.
-    CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 6, 1), dt.date(2024, 8, 10))
+    list(CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 6, 1), dt.date(2024, 8, 10)))
 
     assert len(responses.calls) == 6
     for call in responses.calls:
@@ -355,7 +387,7 @@ def test_provider_surfaces_api_error_body(settings):
     au = make_commodity("Or", "XAU")
 
     with pytest.raises(RuntimeError, match="timeframe_too_long"):
-        CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+        list(CommoditiesApiProvider().fetch_timeseries([au], dt.date(2024, 1, 1), dt.date(2024, 1, 2)))
 
 
 def _wb_xlsx_bytes() -> bytes:

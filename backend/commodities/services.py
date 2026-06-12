@@ -165,24 +165,53 @@ def backfill_daily(days: int = 30) -> ImportRun:
         end = dt.date.today()
         start = end - dt.timedelta(days=days)
         commodities = [c for c in Commodity.objects.filter(is_active=True) if c.api_symbol]
-        to_upsert = [
-            PriceQuote(
-                commodity=p.commodity,
-                date=p.date,
-                source=p.source,
-                price_usd=p.price_usd,
-                price_eur=p.price_eur,
-            )
-            for p in provider.fetch_timeseries(commodities, start, end)
-        ]
-        if to_upsert:
+
+        # Persist each commodity's points as they arrive (the provider yields symbol
+        # by symbol) so a mid-run rate-limit/abort never discards the requests already
+        # spent — the upstream caps at 60 req/min.
+        saved = 0
+        batch: list[PriceQuote] = []
+
+        def flush() -> None:
+            nonlocal saved
+            if not batch:
+                return
             PriceQuote.objects.bulk_create(
-                to_upsert,
+                batch,
                 batch_size=1000,
                 update_conflicts=True,
                 unique_fields=["commodity", "date", "source"],
                 update_fields=["price_usd", "price_eur"],
             )
+            saved += len(batch)
+            batch.clear()
+
+        fetch_error: Exception | None = None
+        try:
+            for p in provider.fetch_timeseries(commodities, start, end):
+                batch.append(
+                    PriceQuote(
+                        commodity=p.commodity,
+                        date=p.date,
+                        source=p.source,
+                        price_usd=p.price_usd,
+                        price_eur=p.price_eur,
+                    )
+                )
+                if len(batch) >= 500:
+                    flush()
+        except Exception as exc:  # noqa: BLE001 — keep partial progress, then report
+            fetch_error = exc
+        flush()
+
+        if fetch_error is not None:
+            run.finish(
+                ImportRun.Status.ERROR,
+                f"Backfill interrompu : {saved} cours sauvegardés avant l'erreur "
+                f"({type(fetch_error).__name__}: {fetch_error}).",
+            )
+            return run
+
         # /timeseries is one symbol per request, split into ≤max_days windows; report
         # the resulting request count so API-quota usage stays visible in the audit.
         max_days = getattr(provider, "timeseries_max_days", 30)
@@ -190,7 +219,7 @@ def backfill_daily(days: int = 30) -> ImportRun:
         n_requests = (len(commodities) + 1) * windows
         run.finish(
             ImportRun.Status.SUCCESS,
-            f"Backfill quotidien {start}→{end} : {len(to_upsert)} cours "
+            f"Backfill quotidien {start}→{end} : {saved} cours "
             f"Commodities-API importés ({windows} fenêtre(s) × {len(commodities) + 1} "
             f"symboles ≈ {n_requests} requêtes API).",
         )

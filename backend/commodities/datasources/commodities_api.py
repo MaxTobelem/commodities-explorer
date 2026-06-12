@@ -13,6 +13,8 @@ therefore ``1 / rate``. EUR is requested as an extra symbol so we can convert
 from __future__ import annotations
 
 import datetime as dt
+import time
+from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
@@ -92,6 +94,23 @@ class CommoditiesApiProvider(PriceProvider):
         # Plan-dependent cap on the span of a single /timeseries request (~30 days).
         return getattr(settings, "COMMODITIES_API_TIMESERIES_MAX_DAYS", 30)
 
+    @property
+    def min_request_interval(self) -> float:
+        # Stay under the plan's per-minute cap (e.g. 60 req/min → ≥1s between calls).
+        return getattr(settings, "COMMODITIES_API_MIN_REQUEST_INTERVAL", 1.1)
+
+    def _throttle(self) -> None:
+        """Pace consecutive calls to respect the upstream per-minute rate limit."""
+        interval = self.min_request_interval
+        if interval <= 0:
+            return
+        last = getattr(self, "_last_request_at", None)
+        if last is not None:
+            wait = interval - (time.monotonic() - last)
+            if wait > 0:
+                time.sleep(wait)
+        self._last_request_at = time.monotonic()
+
     # -- public --------------------------------------------------------------
 
     def fetch_latest(self, commodities: list[Commodity]) -> list[PriceData]:
@@ -139,21 +158,25 @@ class CommoditiesApiProvider(PriceProvider):
 
     def fetch_timeseries(
         self, commodities: list[Commodity], start: dt.date, end: dt.date
-    ) -> list[PriceData]:
-        """Historical daily prices over [start, end], for backfilling charts."""
+    ) -> Iterator[PriceData]:
+        """Historical daily prices over [start, end], yielded symbol by symbol.
+
+        Yielding (rather than returning a list) lets the caller persist each
+        commodity's points as they arrive, so a mid-run rate-limit/abort keeps the
+        progress already made instead of discarding the whole batch.
+        """
         symbol_to_commodity: dict[str, Commodity] = {}
         for commodity in commodities:
             if commodity.api_symbol:
                 symbol_to_commodity.setdefault(commodity.api_symbol.upper(), commodity)
         if not symbol_to_commodity:
-            return []
+            return
 
         # The timeseries endpoint accepts only ONE symbol per request AND caps the
         # span of each request (~30 days), so fetch every commodity window by window
         # — plus EUR once for the per-date USD→EUR conversion.
         eur_by_date = self._timeseries_rates_windowed("EUR", start, end)
 
-        results: list[PriceData] = []
         for symbol, commodity in symbol_to_commodity.items():
             factor = self._unit_factor(symbol)
             for date_str, rate in self._timeseries_rates_windowed(symbol, start, end).items():
@@ -169,16 +192,13 @@ class CommoditiesApiProvider(PriceProvider):
                     quote_date = dt.date.fromisoformat(str(date_str)[:10])
                 except ValueError:
                     continue
-                results.append(
-                    PriceData(
-                        commodity=commodity,
-                        date=quote_date,
-                        price_usd=price_usd,
-                        price_eur=price_eur,
-                        source=self.key,
-                    )
+                yield PriceData(
+                    commodity=commodity,
+                    date=quote_date,
+                    price_usd=price_usd,
+                    price_eur=price_eur,
+                    source=self.key,
                 )
-        return results
 
     # -- internals -----------------------------------------------------------
 
@@ -192,6 +212,7 @@ class CommoditiesApiProvider(PriceProvider):
             "base": "USD",
             "symbols": ",".join([*symbols, "EUR"]),
         }
+        self._throttle()
         response = requests.get(f"{self.base_url}/latest", params=params, timeout=self.timeout)
         return self._payload_or_raise(response)
 
@@ -209,6 +230,7 @@ class CommoditiesApiProvider(PriceProvider):
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
         }
+        self._throttle()
         response = requests.get(
             f"{self.base_url}/timeseries", params=params, timeout=self.timeout
         )
