@@ -19,13 +19,19 @@ export function PriceChart({ data, currency }: { data: PriceQuote[]; currency: C
     )
   }
 
+  // Colour the line by the net move over the visible window: green when the price
+  // ended higher than it started, red when lower — so the hue carries real meaning.
+  const values = points.map((p) => p.value as number)
+  const color =
+    values[values.length - 1] >= values[0] ? "var(--color-positive)" : "var(--color-destructive)"
+
   return (
     <ResponsiveContainer width="100%" height={280}>
       <AreaChart data={points} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
         <defs>
           <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-chart-1)" stopOpacity={0.3} />
-            <stop offset="100%" stopColor="var(--color-chart-1)" stopOpacity={0} />
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
@@ -58,7 +64,7 @@ export function PriceChart({ data, currency }: { data: PriceQuote[]; currency: C
         <Area
           type="monotone"
           dataKey="value"
-          stroke="var(--color-chart-1)"
+          stroke={color}
           strokeWidth={2}
           fill="url(#priceFill)"
         />
