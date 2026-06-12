@@ -207,6 +207,15 @@ def test_refresh_events_applies_only_gdelt_impacts():
     assert impact.event.start_date == dt.date(2026, 6, 11)  # dated to the article, not Jan 1
 
 
+def test_gdelt_translates_headline_to_french(settings, monkeypatch):
+    settings.GDELT_TRANSLATE = True
+    monkeypatch.setattr(GdeltProvider, "_translate_fr", staticmethod(lambda text: "Titre en français"))
+    provider = GdeltProvider()
+
+    assert provider._to_french("English headline", "English") == "Titre en français (traduit de l'anglais)"
+    assert provider._to_french("Déjà en français", "French") == "Déjà en français"  # not re-translated
+
+
 USGS_SAMPLE = (
     "SOURCE,COMMODITY,COUNTRY,TYPE,UNIT_MEAS,PROD_2023,PROD_EST_ 2024,PROD_NOTES,"
     "CAP_2023,CAP_EST_ 2024,CAP_NOTES,RESERVES_2024,RESERVE_NOTES\n"

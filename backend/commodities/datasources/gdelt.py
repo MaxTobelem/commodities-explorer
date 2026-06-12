@@ -30,6 +30,27 @@ if TYPE_CHECKING:
 GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 USER_AGENT = "commodities-explorer/1.0 (research dashboard)"
 
+# GDELT language name → French "traduit …" phrase, for the translation note.
+_LANG_FR = {
+    "english": "de l'anglais",
+    "chinese": "du chinois",
+    "spanish": "de l'espagnol",
+    "portuguese": "du portugais",
+    "russian": "du russe",
+    "german": "de l'allemand",
+    "italian": "de l'italien",
+    "arabic": "de l'arabe",
+    "japanese": "du japonais",
+    "korean": "du coréen",
+    "hindi": "du hindi",
+    "turkish": "du turc",
+    "vietnamese": "du vietnamien",
+    "indonesian": "de l'indonésien",
+    "thai": "du thaï",
+    "dutch": "du néerlandais",
+    "polish": "du polonais",
+}
+
 
 class GdeltProvider(EnrichmentProvider):
     key = "gdelt"
@@ -56,6 +77,10 @@ class GdeltProvider(EnrichmentProvider):
     def request_delay(self) -> float:
         # Seconds between requests to respect the public rate limit.
         return getattr(settings, "GDELT_REQUEST_DELAY", 6.0)
+
+    @property
+    def translate(self) -> bool:
+        return getattr(settings, "GDELT_TRANSLATE", True)
 
     def __init__(self) -> None:
         self._last_request_at = 0.0
@@ -108,26 +133,34 @@ class GdeltProvider(EnrichmentProvider):
         articles = payload.get("articles") or []
         if len(articles) < self.article_threshold:
             return None
-        lead = self._pick_english(articles)
+        lead = articles[0]  # most recent / most relevant, any language
         dates = [d for a in articles if (d := self._parse_seendate(a.get("seendate")))]
         return {
-            "summary": lead.get("title", ""),
+            "summary": self._to_french(lead.get("title", ""), lead.get("language", "")),
             "url": lead.get("url", ""),
             "date": max(dates) if dates else dt.date.today(),
         }
 
+    def _to_french(self, title: str, language: str) -> str:
+        """Translate a (possibly non-English) headline to French, with a 'traduit de…'
+        note. Best-effort: on failure or if already French, return the original."""
+        title = (title or "").strip()
+        if not title or not self.translate or (language or "").lower().startswith("fr"):
+            return title
+        translated = self._translate_fr(title)
+        if not translated or translated.strip() == title:
+            return title  # translation unavailable → original, no misleading note
+        src = _LANG_FR.get((language or "").lower(), "d'une langue étrangère")
+        return f"{translated} (traduit {src})"
+
     @staticmethod
-    def _pick_english(articles: list[dict[str, Any]]) -> dict[str, Any]:
-        """Headline for the (French) UI: prefer an English article, else a Latin-script
-        one, else the first — so we don't surface e.g. a Chinese headline."""
-        for article in articles:
-            if (article.get("language") or "").lower().startswith("eng"):
-                return article
-        for article in articles:
-            title = article.get("title") or ""
-            if title and sum(c.isascii() for c in title) >= 0.8 * len(title):
-                return article
-        return articles[0]
+    def _translate_fr(text: str) -> str | None:
+        try:
+            from deep_translator import GoogleTranslator
+
+            return GoogleTranslator(source="auto", target="fr").translate(text[:480])
+        except Exception:  # noqa: BLE001 — translation is best-effort
+            return None
 
     @staticmethod
     def _parse_seendate(raw: Any) -> dt.date | None:

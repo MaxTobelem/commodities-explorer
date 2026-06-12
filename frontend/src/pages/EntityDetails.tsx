@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, TrendingDown, TrendingUp } from "lucide-react"
+import { ArrowLeft, ExternalLink, TrendingDown, TrendingUp } from "lucide-react"
 import type { ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
 
@@ -209,6 +209,16 @@ export function EventDetail() {
       </div>
       <p className="text-sm text-muted-foreground">{formatDate(event.data.start_date)}</p>
       {event.data.description && <p className="max-w-2xl text-sm">{event.data.description}</p>}
+      {event.data.source_url && (
+        <a
+          href={event.data.source_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Source de l'article <ExternalLink className="size-3" />
+        </a>
+      )}
       <Section title="Matières impactées">
         {(impacts.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">Aucune matière impactée référencée.</p>
