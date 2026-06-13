@@ -159,7 +159,7 @@ def test_gnews_reads_direction_else_neutral():
     cobalt = make_cobalt()
     items = [
         ("Les prix du cobalt reculent fortement - X", "http://d", "Fri, 12 Jun 2026 08:00:00 GMT", "X"),
-        ("Réunion annuelle sur le cobalt - Y", "http://n", "Thu, 11 Jun 2026 08:00:00 GMT", "Y"),
+        ("Le marché du cobalt reste stable - Y", "http://n", "Thu, 11 Jun 2026 08:00:00 GMT", "Y"),
     ]
     responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
 
@@ -175,7 +175,7 @@ def test_gnews_caps_one_article_per_source():
     items = [
         ("Cobalt prix jour 1 - Spam", "http://1", "Fri, 12 Jun 2026 08:00:00 GMT", "Spam"),
         ("Cobalt prix jour 2 - Spam", "http://2", "Thu, 11 Jun 2026 08:00:00 GMT", "Spam"),
-        ("Cobalt analyse - Le Monde", "http://3", "Wed, 10 Jun 2026 08:00:00 GMT", "Le Monde"),
+        ("Cobalt : la production rebondit - Le Monde", "http://3", "Wed, 10 Jun 2026 08:00:00 GMT", "Le Monde"),
     ]
     responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
 
@@ -183,6 +183,41 @@ def test_gnews_caps_one_article_per_source():
 
     assert len(impacts) == 2  # only one of the two "Spam" articles kept
     assert any("Le Monde" in im.description for im in impacts)
+
+
+@responses.activate
+def test_gnews_filters_off_topic_noise():
+    cobalt = make_cobalt()
+    items = [
+        ("Un smartphone au cobalt présenté au salon - X", "http://noise",
+         "Fri, 12 Jun 2026 08:00:00 GMT", "X"),
+        ("Le cours du cobalt grimpe - Les Echos", "http://ok",
+         "Fri, 12 Jun 2026 08:00:00 GMT", "Les Echos"),
+    ]
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
+
+    urls = [im.source_url for im in GoogleNewsProvider().fetch([cobalt]).impacts]
+
+    assert urls == ["http://ok"]  # off-topic headline (no market signal) is dropped
+
+
+@responses.activate
+def test_gnews_categorizes_by_headline():
+    cobalt = make_cobalt()
+    items = [
+        ("La guerre fait flamber les cours du cobalt - A", "http://w", "Fri, 12 Jun 2026 08:00:00 GMT", "A"),
+        ("Sécheresse : la production de cobalt menacée - B", "http://d", "Thu, 11 Jun 2026 08:00:00 GMT", "B"),
+        ("Nouveaux droits de douane sur le cobalt - C", "http://p", "Wed, 10 Jun 2026 08:00:00 GMT", "C"),
+        ("Les cours du cobalt en hausse - D", "http://e", "Tue, 09 Jun 2026 08:00:00 GMT", "D"),
+    ]
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
+
+    by_url = {im.source_url: im.event_type for im in GoogleNewsProvider().fetch([cobalt]).impacts}
+
+    assert by_url["http://w"] == Event.Type.WAR
+    assert by_url["http://d"] == Event.Type.DISASTER
+    assert by_url["http://p"] == Event.Type.POLICY
+    assert by_url["http://e"] == Event.Type.ECONOMIC
 
 
 @responses.activate

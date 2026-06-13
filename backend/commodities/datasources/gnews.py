@@ -90,7 +90,7 @@ _QUERIES: dict[str, str] = {
     "platine": "platine (cours OR prix OR once OR production OR métal)",
     "argent": '"cours de l\'argent" OR "prix de l\'argent" OR "once d\'argent"',
     # Batterie
-    "cobalt": "cobalt (cours OR prix OR mine OR RDC OR production OR batterie)",
+    "cobalt": "cobalt (cours OR prix OR mine OR RDC OR production OR raffinage)",
 }
 
 _MARKET_TERMS = "cours OR prix OR production OR récolte OR marché OR exportations"
@@ -106,6 +106,31 @@ _DOWN = (
     "baisse", "recul", "chut", "effondr", "plus bas", "surplus", "excédent", "excedent",
     "surproduction", "abondante", "repli", "détend", "detend", "se tasse", "plonge", "dégringol",
 )
+
+# Event category lexicons (checked in priority order: war > disaster > policy > else economic).
+_CAT_WAR = (
+    "guerre", "conflit", "attaque", "frappe", "militaire", "missile", "drone", "bombard",
+    "offensive", "belligér", "belliger", "troupes", "combats",
+)
+_CAT_DISASTER = (
+    "sécheresse", "secheresse", "inondation", "gelée", "gelee", "ouragan", "cyclone", "séisme",
+    "seisme", "tremblement", "incendie", "tempête", "tempete", "canicule", "catastrophe",
+    "épidémie", "epidemie", "ravageur",
+)
+_CAT_POLICY = (
+    "tarif", "douane", "taxe", "sanction", "embargo", "quota", "interdiction", "interdit",
+    "régulation", "regulation", "nationalis", "subvention", "ministre", "gouvernement",
+    "élection", "election", "accord", "réglementation", "reglementation",
+)
+# A headline must carry at least one market/event signal to be kept — drops off-topic
+# noise that merely mentions a metal (beer cans, robot arms, gadgets…).
+_MARKET = (
+    "cours", "prix", "marché", "marche", "production", "récolte", "recolte", "export", "import",
+    "pénurie", "penurie", "offre", "demande", "stock", "tonne", "baril", "once", "lme",
+    "fonderie", "mine", "raffin", "gisement", "extraction", "approvisionnement", "filière",
+    "filiere", "opep", "flamb", "grimp", "recul", "chut", "hausse", "baisse",
+)
+_RELEVANT = (*_MARKET, *_CAT_WAR, *_CAT_DISASTER, *_CAT_POLICY)
 
 
 def _session() -> requests.Session:
@@ -127,6 +152,22 @@ def _direction(title: str) -> str:
     if down > up:
         return EventImpact.Direction.DOWN
     return EventImpact.Direction.NEUTRAL
+
+
+def _categorize(title: str) -> str:
+    text = title.lower()
+    if any(w in text for w in _CAT_WAR):
+        return Event.Type.WAR
+    if any(w in text for w in _CAT_DISASTER):
+        return Event.Type.DISASTER
+    if any(w in text for w in _CAT_POLICY):
+        return Event.Type.POLICY
+    return Event.Type.ECONOMIC
+
+
+def _is_relevant(title: str) -> bool:
+    text = title.lower()
+    return any(w in text for w in _RELEVANT)
 
 
 def _clean_title(title: str, source: str) -> str:
@@ -190,18 +231,18 @@ class GoogleNewsProvider(EnrichmentProvider):
             for date, title, link, source in candidates:
                 if picked >= self.max_per_commodity:
                     break
-                # One article per source per commodity → diversify the feed
-                # (some sites publish daily price bulletins that would flood it).
+                headline = _clean_title(title, source)
+                if not _is_relevant(headline):
+                    continue  # drop off-topic noise that merely mentions the commodity
                 key = source.lower()
-                if key and key in seen_sources:
+                if key and key in seen_sources:  # 1 article per source → diversify the feed
                     continue
                 seen_sources.add(key)
-                headline = _clean_title(title, source)
                 result.impacts.append(
                     ImpactRecord(
                         commodity=commodity,
                         event_title=headline[:190],
-                        event_type=Event.Type.ECONOMIC,
+                        event_type=_categorize(headline),
                         start_date=date,
                         description=f"D'après {source}." if source else "",
                         source_url=link,
