@@ -4,39 +4,42 @@ We query Google News' RSS *search* in French for each commodity's market/supply
 news and turn the most recent articles into events:
   - the **real headline** is the event title (explicit, not a heuristic label),
   - the publisher + date give context, the article is the source link,
-  - the price **direction** is read from a small French keyword lexicon
-    (flambée/pénurie → hausse, recul/surplus → baisse, else *neutral* — no
-    fabricated direction).
+  - the price **direction** and event **category** are read from small French
+    lexicons (see newslex.py) — else *neutral*/*economic*, never fabricated.
 
-One commodity → its own news, so the link is direct and the content is real —
-unlike the previous country-conflict heuristic that fanned a single vague
-"tension" onto every commodity a country produced.
+Google News covers *every* commodity freshly, but its obfuscated redirect link
+hides the article body, so events have no real description. The publisher-feed
+provider (presse.py) is the primary source for the commodities it covers well;
+refresh_events uses Google News to fill the rest (most metals, tropical softs).
 
 Google News RSS is a public, unauthenticated feed (no key, no rate-limit for our
-~39 daily requests); a per-commodity failure is isolated and never aborts the run.
+handful of daily requests); a per-commodity failure is isolated, never aborts the run.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 import requests
 from django.conf import settings
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-from commodities.models import Event, EventImpact
 
 from .base import EnrichmentProvider, EnrichmentResult, ImpactRecord
+from .newslex import (
+    USER_AGENT,
+    categorize,
+    clean_html,
+    direction,
+    is_relevant,
+    make_session,
+    parse_date,
+)
 
 if TYPE_CHECKING:
     from commodities.models import Commodity
 
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
-USER_AGENT = "Mozilla/5.0 (compatible; commodities-explorer/1.0; research dashboard)"
 
 # Per-commodity French query (slug → query), focused on the *commodity market* to
 # avoid consumer noise (coffee machines, lithium batteries) and the ambiguous
@@ -95,99 +98,16 @@ _QUERIES: dict[str, str] = {
 
 _MARKET_TERMS = "cours OR prix OR production OR récolte OR marché OR exportations"
 
-# Direction lexicon — substring match on the lowercased headline.
-_UP = (
-    "hausse", "flamb", "grimp", "bondit", "envol", "augment", "record", "plus haut",
-    "sommet", "pénurie", "penurie", "rupture", "embargo", "sanction", "grève", "greve",
-    "sécheresse", "secheresse", "inondation", "déficit", "deficit", "choc", "tension",
-    "perturbation", "blocage", "restriction", "s'envole", "dopé", "dope",
-)
-_DOWN = (
-    "baisse", "recul", "chut", "effondr", "plus bas", "surplus", "excédent", "excedent",
-    "surproduction", "abondante", "repli", "détend", "detend", "se tasse", "plonge", "dégringol",
-)
-
-# Event category lexicons (checked in priority order: war > disaster > policy > else economic).
-_CAT_WAR = (
-    "guerre", "conflit", "attaque", "frappe", "militaire", "missile", "drone", "bombard",
-    "offensive", "belligér", "belliger", "troupes", "combats",
-)
-_CAT_DISASTER = (
-    "sécheresse", "secheresse", "inondation", "gelée", "gelee", "ouragan", "cyclone", "séisme",
-    "seisme", "tremblement", "incendie", "tempête", "tempete", "canicule", "catastrophe",
-    "épidémie", "epidemie", "ravageur",
-)
-_CAT_POLICY = (
-    "tarif", "douane", "taxe", "sanction", "embargo", "quota", "interdiction", "interdit",
-    "régulation", "regulation", "nationalis", "subvention", "ministre", "gouvernement",
-    "élection", "election", "accord", "réglementation", "reglementation",
-)
-# A headline must carry at least one market/event signal to be kept — drops off-topic
-# noise that merely mentions a metal (beer cans, robot arms, gadgets…).
-_MARKET = (
-    "cours", "prix", "marché", "marche", "production", "récolte", "recolte", "export", "import",
-    "pénurie", "penurie", "offre", "demande", "stock", "tonne", "baril", "once", "lme",
-    "fonderie", "mine", "raffin", "gisement", "extraction", "approvisionnement", "filière",
-    "filiere", "opep", "flamb", "grimp", "recul", "chut", "hausse", "baisse",
-)
-_RELEVANT = (*_MARKET, *_CAT_WAR, *_CAT_DISASTER, *_CAT_POLICY)
-
-
-def _session() -> requests.Session:
-    retry = Retry(
-        total=2, connect=2, backoff_factor=1.0,
-        status_forcelist=(500, 502, 503, 504), allowed_methods=frozenset({"GET"}),
-    )
-    session = requests.Session()
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-    return session
-
-
-def _direction(title: str) -> str:
-    text = title.lower()
-    up = sum(1 for w in _UP if w in text)
-    down = sum(1 for w in _DOWN if w in text)
-    if up > down:
-        return EventImpact.Direction.UP
-    if down > up:
-        return EventImpact.Direction.DOWN
-    return EventImpact.Direction.NEUTRAL
-
-
-def _categorize(title: str) -> str:
-    text = title.lower()
-    if any(w in text for w in _CAT_WAR):
-        return Event.Type.WAR
-    if any(w in text for w in _CAT_DISASTER):
-        return Event.Type.DISASTER
-    if any(w in text for w in _CAT_POLICY):
-        return Event.Type.POLICY
-    return Event.Type.ECONOMIC
-
-
-def _is_relevant(title: str) -> bool:
-    text = title.lower()
-    return any(w in text for w in _RELEVANT)
-
 
 def _clean_title(title: str, source: str) -> str:
     """Strip the ' - Publisher' suffix Google News appends to every headline."""
-    title = title.strip()
+    title = clean_html(title)
     if source and title.endswith(f" - {source}"):
         return title[: -(len(source) + 3)].strip()
     head, sep, tail = title.rpartition(" - ")
     if sep and len(tail) <= 45:
         return head.strip()
     return title
-
-
-def _parse_date(raw: str | None) -> dt.date | None:
-    if not raw:
-        return None
-    try:
-        return parsedate_to_datetime(raw).date()
-    except (TypeError, ValueError):
-        return None
 
 
 class GoogleNewsProvider(EnrichmentProvider):
@@ -212,16 +132,17 @@ class GoogleNewsProvider(EnrichmentProvider):
     def fetch(self, commodities: list[Commodity]) -> EnrichmentResult:
         result = EnrichmentResult()
         cutoff = dt.date.today() - dt.timedelta(days=self.lookback_days)
+        session = make_session()
         for commodity in commodities:
             try:
-                items = self._fetch_items(self._query_for(commodity))
+                items = self._fetch_items(session, self._query_for(commodity))
             except (requests.RequestException, ET.ParseError):
                 continue  # isolate per-commodity failures — never abort the run
             candidates = []
             for item in items:
-                title = (item.findtext("title") or "").strip()
+                title = clean_html(item.findtext("title") or "")
                 link = (item.findtext("link") or "").strip()
-                date = _parse_date(item.findtext("pubDate"))
+                date = parse_date(item.findtext("pubDate"))
                 if not title or not link or date is None or date < cutoff:
                     continue
                 candidates.append((date, title, link, (item.findtext("source") or "").strip()))
@@ -232,7 +153,7 @@ class GoogleNewsProvider(EnrichmentProvider):
                 if picked >= self.max_per_commodity:
                     break
                 headline = _clean_title(title, source)
-                if not _is_relevant(headline):
+                if not is_relevant(headline):
                     continue  # drop off-topic noise that merely mentions the commodity
                 key = source.lower()
                 if key and key in seen_sources:  # 1 article per source → diversify the feed
@@ -242,11 +163,11 @@ class GoogleNewsProvider(EnrichmentProvider):
                     ImpactRecord(
                         commodity=commodity,
                         event_title=headline[:190],
-                        event_type=_categorize(headline),
+                        event_type=categorize(headline),
                         start_date=date,
                         description=f"D'après {source}." if source else "",
                         source_url=link,
-                        direction=_direction(headline),
+                        direction=direction(headline),
                         magnitude=None,
                         source=self.key,
                     )
@@ -256,9 +177,9 @@ class GoogleNewsProvider(EnrichmentProvider):
 
     # -- internals -----------------------------------------------------------
 
-    def _fetch_items(self, query: str) -> list[ET.Element]:
+    def _fetch_items(self, session: requests.Session, query: str) -> list[ET.Element]:
         params = {"q": query, "hl": "fr", "gl": "FR", "ceid": "FR:fr"}
-        response = _session().get(
+        response = session.get(
             self.base_url, params=params, headers={"User-Agent": USER_AGENT}, timeout=self.timeout
         )
         response.raise_for_status()

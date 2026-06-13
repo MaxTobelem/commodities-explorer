@@ -17,6 +17,7 @@ from commodities.datasources.base import (
 )
 from commodities.datasources.gnews import GOOGLE_NEWS_RSS, GoogleNewsProvider
 from commodities.datasources.owid import OWID_URL, OwidProvider
+from commodities.datasources.presse import PresseProvider
 from commodities.datasources.usgs import UsgsProvider
 from commodities.models import (
     Commodity,
@@ -250,6 +251,183 @@ def test_refresh_events_replaces_news_and_purges_legacy():
     assert impact.event.type == Event.Type.ECONOMIC
     assert impact.event.source_url == "http://a"
     assert impact.source == "gnews" and impact.needs_review is True
+
+
+# --- Commodity news (publisher RSS — presse) --------------------------------
+
+
+def _presse_rss(items):
+    """Minimal publisher RSS body. items: (title, link, pubDate, description)."""
+    parts = ['<?xml version="1.0" encoding="UTF-8"?><rss><channel>']
+    for title, link, pub, desc in items:
+        parts.append(
+            f"<item><title>{title}</title><link>{link}</link>"
+            f"<pubDate>{pub}</pubDate><description>{desc}</description></item>"
+        )
+    parts.append("</channel></rss>")
+    return "".join(parts).encode("utf-8")
+
+
+def _make_petrole():
+    return Commodity.objects.create(
+        name="Pétrole brut (Brent)", slug="petrole-brut-brent", price_symbol="Crude oil, Brent"
+    )
+
+
+@responses.activate
+def test_presse_builds_event_with_real_description(settings):
+    settings.PRESSE_FEEDS = [("Terre-net", "http://feed")]
+    ble = Commodity.objects.create(name="Blé (US HRW)", slug="ble-us-hrw", price_symbol="Wheat")
+    chapo = "Le blé Euronext retombe sous les 200 €/t après les pluies annoncées sur les bassins."
+    responses.add(
+        responses.GET, "http://feed",
+        body=_presse_rss([
+            ("Le blé Euronext retombe sur les 200 €/t", "http://art",
+             "Fri, 12 Jun 2026 08:00:00 GMT", chapo)
+        ]),
+        status=200,
+    )
+
+    impacts = PresseProvider().fetch([ble]).impacts
+
+    assert len(impacts) == 1
+    im = impacts[0]
+    assert im.commodity == ble
+    assert im.event_title == "Le blé Euronext retombe sur les 200 €/t"
+    assert im.source == "presse" and im.source_url == "http://art"
+    assert chapo in im.description and "Terre-net" in im.description  # real summary + attribution
+    assert im.direction == EventImpact.Direction.DOWN  # "retombe"
+    assert im.event_type == Event.Type.ECONOMIC
+
+
+@responses.activate
+def test_presse_requires_commodity_in_title(settings):
+    settings.PRESSE_FEEDS = [("X", "http://feed")]
+    ble = Commodity.objects.create(name="Blé (US HRW)", slug="ble-us-hrw", price_symbol="W")
+    responses.add(
+        responses.GET, "http://feed",
+        body=_presse_rss([
+            ("Les marchés agricoles dans le rouge", "http://a", "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Le blé et le maïs reculent à Chicago.")
+        ]),
+        status=200,
+    )
+
+    # "blé" appears only in the body, not the title → not attached (avoids drift).
+    assert PresseProvider().fetch([ble]).impacts == []
+
+
+@responses.activate
+def test_presse_drops_non_market_titles(settings):
+    settings.PRESSE_FEEDS = [("X", "http://feed")]
+    ble = Commodity.objects.create(name="Blé (US HRW)", slug="ble-us-hrw", price_symbol="W")
+    responses.add(
+        responses.GET, "http://feed",
+        body=_presse_rss([
+            ("Comment limiter le piétin-échaudage en blé dur", "http://a",
+             "Fri, 12 Jun 2026 08:00:00 GMT", "Conseils agronomiques pour la culture du blé dur.")
+        ]),
+        status=200,
+    )
+
+    # Agronomy how-to: names the commodity but carries no market signal → dropped.
+    assert PresseProvider().fetch([ble]).impacts == []
+
+
+@responses.activate
+def test_presse_categorizes_and_links_multiple_commodities(settings):
+    settings.PRESSE_FEEDS = [("Connaissance des Énergies", "http://feed")]
+    petrole = _make_petrole()
+    soja = Commodity.objects.create(name="Soja", slug="soja", price_symbol="Soybeans")
+    responses.add(
+        responses.GET, "http://feed",
+        body=_presse_rss([
+            ("Guerre en Iran : le pétrole flambe et entraîne le soja", "http://w",
+             "Fri, 12 Jun 2026 08:00:00 GMT", "Les cours s'envolent après l'attaque ; le soja suit.")
+        ]),
+        status=200,
+    )
+
+    impacts = PresseProvider().fetch([petrole, soja]).impacts
+
+    # One article about two commodities → two impacts sharing one event.
+    assert {im.commodity.slug for im in impacts} == {"petrole-brut-brent", "soja"}
+    assert all(im.event_type == Event.Type.WAR for im in impacts)  # "guerre"
+    assert all(im.direction == EventImpact.Direction.UP for im in impacts)  # "flambe"/"s'envole"
+    assert len({im.event_title for im in impacts}) == 1
+
+
+@responses.activate
+def test_presse_caps_and_dedups_per_commodity(settings):
+    settings.PRESSE_FEEDS = [("X", "http://feed")]
+    settings.PRESSE_MAX_PER_COMMODITY = 2
+    petrole = _make_petrole()
+    body = _presse_rss([
+        ("Le cours du pétrole grimpe encore", "http://1", "Fri, 12 Jun 2026 08:00:00 GMT",
+         "Le baril progresse fortement aujourd'hui sur le marché."),
+        ("Le cours du pétrole grimpe encore", "http://dup", "Thu, 11 Jun 2026 08:00:00 GMT",
+         "Doublon de titre, autre lien."),
+        ("Le prix du pétrole se stabilise", "http://2", "Wed, 10 Jun 2026 08:00:00 GMT",
+         "Le baril fait une pause après la hausse récente."),
+        ("Le baril recule nettement", "http://3", "Tue, 09 Jun 2026 08:00:00 GMT",
+         "Le pétrole perd du terrain sur le marché mondial."),
+    ])
+    responses.add(responses.GET, "http://feed", body=body, status=200)
+
+    impacts = PresseProvider().fetch([petrole]).impacts
+
+    assert len(impacts) == 2  # capped at 2, most recent first, duplicate title dropped
+    assert impacts[0].source_url == "http://1"
+    assert "http://dup" not in {im.source_url for im in impacts}
+
+
+@responses.activate
+def test_presse_isolates_feed_failure(settings):
+    settings.PRESSE_FEEDS = [("Bad", "http://bad"), ("Good", "http://good")]
+    petrole = _make_petrole()
+    responses.add(responses.GET, "http://bad", status=404)
+    responses.add(
+        responses.GET, "http://good",
+        body=_presse_rss([
+            ("Le prix du pétrole grimpe", "http://ok", "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Le baril monte nettement ce matin sur le marché.")
+        ]),
+        status=200,
+    )
+
+    impacts = PresseProvider().fetch([petrole]).impacts
+
+    assert [im.source_url for im in impacts] == ["http://ok"]  # bad feed isolated, good one kept
+
+
+@responses.activate
+def test_refresh_events_presse_primary_gnews_fallback(settings):
+    settings.PRESSE_FEEDS = [("Connaissance des Énergies", "http://presse")]
+    petrole = _make_petrole()
+    cobalt = make_cobalt()
+    responses.add(
+        responses.GET, "http://presse",
+        body=_presse_rss([
+            ("Le prix du pétrole grimpe sur fond de tensions", "http://oil",
+             "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Le baril de Brent progresse nettement après les annonces de l'Opep.")
+        ]),
+        status=200,
+    )
+    responses.add(
+        responses.GET, GNEWS_RE,
+        body=_rss([("Le cours du cobalt recule - RFI", "http://co",
+                    "Fri, 12 Jun 2026 08:00:00 GMT", "RFI")]),
+        status=200,
+    )
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    oil = EventImpact.objects.select_related("event").get(commodity=petrole)
+    assert oil.source == "presse" and "Brent progresse" in oil.event.description  # real summary
+    assert EventImpact.objects.get(commodity=cobalt).source == "gnews"  # gap filled by fallback
+    assert not EventImpact.objects.filter(commodity=petrole, source="gnews").exists()  # no double-fetch
 
 
 USGS_SAMPLE = (

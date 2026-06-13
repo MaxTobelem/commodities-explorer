@@ -113,7 +113,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 0 */6 * * *  cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices >> /home/ubuntu/declo-cron.log 2>&1
 # Enrichissement + curé + pays — le 1er du mois à 05:00
 0 5 1 * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_data --skip update_prices >> /home/ubuntu/declo-cron.log 2>&1
-# Actualités de marché des matières (Google News) — chaque jour à 07:30
+# Actualités de marché des matières (presse RSS + repli Google News) — chaque jour à 07:30
 30 7 * * *   cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_events >> /home/ubuntu/declo-cron.log 2>&1
 ```
 

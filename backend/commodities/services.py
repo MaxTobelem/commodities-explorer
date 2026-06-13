@@ -261,36 +261,52 @@ def enrich_data(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
 
 
 def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
-    """Refresh commodity news events (Google News) — lighter than enrich_data, for a
-    daily cron (news moves faster than the annual USGS/RMIS data).
+    """Refresh commodity news events — lighter than enrich_data, for a daily cron
+    (news moves faster than the annual USGS/RMIS data).
 
-    Delete-then-insert: the current top headlines per commodity *replace* the
-    previous news set (and any legacy GDELT "Tensions en…" events), so the feed
-    stays current instead of growing without bound. A failed fetch (no impacts)
-    keeps the existing events rather than wiping them.
+    Two coordinated sources: **presse** (curated publisher RSS) is primary because
+    its articles carry real summaries; **gnews** (Google News) then fills only the
+    commodities presse didn't cover (most metals, tropical softs, niche goods).
+
+    Delete-then-insert: the fresh set *replaces* the previous news (and any legacy
+    GDELT "Tensions en…" events), so the feed stays current instead of growing
+    without bound. A failed fetch (no impacts) keeps the existing events.
     """
     run = ImportRun.objects.create(kind=kind)
     try:
         commodities = list(Commodity.objects.filter(is_active=True))
+        providers = {p.key: p for p in get_enrichment_providers()}
         merged = EnrichmentResult()
         errors: list[str] = []
-        for provider in get_enrichment_providers():
-            if provider.key != "gnews":
-                continue
+
+        covered: set[str] = set()
+        presse = providers.get("presse")
+        if presse is not None:
             try:
-                merged.extend(provider.fetch(commodities))
+                res = presse.fetch(commodities)
+                merged.extend(res)
+                covered = {im.commodity.slug for im in res.impacts}
             except Exception as exc:  # noqa: BLE001 — isolate the source failure
-                errors.append(f"{provider.key}: {type(exc).__name__}")
+                errors.append(f"presse: {type(exc).__name__}")
+
+        gnews = providers.get("gnews")
+        if gnews is not None:
+            gap = [c for c in commodities if c.slug not in covered]
+            try:
+                merged.extend(gnews.fetch(gap))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"gnews: {type(exc).__name__}")
+
         with transaction.atomic():
             if merged.impacts:
                 stale = list(
-                    Event.objects.filter(impacts__source__in=["gnews", "gdelt"])
+                    Event.objects.filter(impacts__source__in=["presse", "gnews", "gdelt"])
                     .values_list("id", flat=True)
                     .distinct()
                 )
                 Event.objects.filter(id__in=stale).delete()
             counts = _apply_enrichment(merged)
-        message = f"{counts['impacts']} actualités (Google News)."
+        message = f"{counts['impacts']} actualités (presse + Google News)."
         if errors:
             message += " Avertissements: " + "; ".join(errors)
         run.finish(ImportRun.Status.SUCCESS, message)

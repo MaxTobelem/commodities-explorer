@@ -15,3 +15,6 @@ DATABASES = {
 
 # News tests: wide lookback so fixed-date fixture articles always pass the cutoff.
 GNEWS_LOOKBACK_DAYS = 36500
+PRESSE_LOOKBACK_DAYS = 36500
+# Presse is off by default in tests (no live feeds); presse tests set their own.
+PRESSE_FEEDS: list[tuple[str, str]] = []

@@ -23,7 +23,8 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 | **Commodities-API** | Cours frais USD + EUR | `update_prices` | ≤ 6 h (PRO) | **oui** |
 | **USGS** MCS | Production + réserves (métaux) | `enrich_data` | annuelle | non |
 | **Our World in Data** | Production (énergie, agricole) + réserves (pétrole, gaz, charbon) | `enrich_data` | annuelle | non |
-| **Google Actualités** (RSS) | Actualités de marché par matière → événements | `refresh_events` | quotidienne | non |
+| **Presse RSS** (éditeurs FR) | Actualités de marché **avec résumé** → événements | `refresh_events` | quotidienne | non |
+| **Google Actualités** (RSS) | Repli actus pour les matières non couvertes par la presse | `refresh_events` | quotidienne | non |
 | **Curé** (USGS, AIE, FAO…) | Secteurs d'usage % + produits | `import_curated` | manuelle | non |
 | **CLDR / Babel** | Noms de pays (français) | `relabel_countries` | — | non |
 
@@ -53,10 +54,12 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 - **Commande** : `enrich_data`.
 - **Maintenance** : mappings `DEFAULT_OWID` (production) et `DEFAULT_OWID_RESERVES` (réserves) dans `owid.py` ; clés = label World Bank (`price_symbol`).
 
-### 5. Actualités de marché — Google Actualités RSS (gratuit)
-- **Quoi** : pour chaque matière, on interroge le **flux RSS de recherche** de Google Actualités en français (`news.google.com/rss/search`) ciblé sur son marché (cours, production, récolte, mine, export…). Les articles récents deviennent des événements : le **vrai titre** est le titre de l'événement, avec **lien source** et **direction** lue dans le titre via un lexique FR (flambée/pénurie → hausse, recul/surplus → baisse, sinon neutre — pas de direction inventée). 1 article par source/matière pour diversifier.
-- **Commande** : `refresh_events` (quotidien, *delete-then-insert* : remplace le jeu d'actus précédent et purge les anciens « Tensions en… »). Pas de clé, pas de rate-limit pour ~39 requêtes/jour, **français direct** (zéro traduction).
-- **Réglages** : `GNEWS_MAX_PER_COMMODITY` (défaut 4), `GNEWS_LOOKBACK_DAYS` (défaut 14). Les requêtes par matière (`_QUERIES`) et le lexique de direction sont dans `gnews.py`.
+### 5. Actualités de marché — presse RSS + repli Google Actualités (gratuit)
+Deux sources coordonnées par `refresh_events` (quotidien, *delete-then-insert* : remplace le jeu d'actus précédent et purge les anciens « Tensions en… »). Direction (flambée/pénurie → hausse, recul/repli → baisse, sinon neutre) et catégorie (guerre / catastrophe / politique / économique) sont lues dans un lexique FR partagé (`newslex.py`). Aucune clé, aucune direction inventée.
+
+- **Primaire — presse RSS (`presse.py`)** : flux d'**éditeurs français** dont chaque article porte un **vrai résumé** (chapô) → les événements ont une **vraie description**. Couvre surtout **énergie + agricole + engrais** (Connaissance des Énergies, La France Agricole, Terre-net, Web-agri, Le Monde, Le Figaro). Filtrage **strict** pour rester cohérent : le terme matière doit apparaître **dans le titre** *et* le titre doit porter un signal de marché (sinon on écarte les how-to agronomiques et les mentions hors-sujet) ; les mots ambigus (or, argent, fer, bois, gaz) exigent une expression désambiguïsée. Un article peut concerner plusieurs matières (1 événement, N impacts). Réglages : `PRESSE_MAX_PER_COMMODITY` (4), `PRESSE_LOOKBACK_DAYS` (14). Liste des flux = `FEEDS`, mapping matière = `_PATTERNS` dans `presse.py`.
+- **Repli — Google Actualités (`gnews.py`)** : pour les matières que la presse ne couvre pas (la plupart des **métaux**, **softs tropicaux**, produits de niche), on interroge le **flux RSS de recherche** de Google Actualités en français, ciblé par matière. Le vrai titre devient l'événement (pas de vraie description : le lien Google masque l'article). Réglages : `GNEWS_MAX_PER_COMMODITY` (4), `GNEWS_LOOKBACK_DAYS` (14) ; requêtes par matière dans `_QUERIES` (`gnews.py`).
+- **Étendre la couverture presse** : ajouter un flux à `FEEDS` (vérifier qu'il est **frais** et que `<description>` porte un vrai chapô), et au besoin un motif à `_PATTERNS`. Un bon candidat métaux/softs francophone manque encore (Agence Ecofin = chapôs riches mais flux gelés ; Commodafrica = 503).
 
 ### 6. Secteurs & produits — dataset curé (gratuit)
 - **Quoi** : parts d'usage par secteur (%) + produits du quotidien pour 22 matières, sourcés (USGS, AIE, FAO, instituts métiers).

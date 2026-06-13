@@ -187,9 +187,17 @@ COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", Tr
 # update_prices chunks requests accordingly (1 slot reserved for EUR conversion).
 COMMODITIES_API_MAX_SYMBOLS = int(env("COMMODITIES_API_MAX_SYMBOLS", "10"))
 
-# Commodity news (events) — real headlines from Google News RSS, per commodity.
-# The top GNEWS_MAX_PER_COMMODITY articles (1 per source) within GNEWS_LOOKBACK_DAYS
-# become events; direction is read from the headline (else neutral).
+# Commodity news (events). Primary source: curated French publisher RSS feeds
+# (presse) whose items carry a real summary → real event descriptions. Per
+# commodity it keeps the top PRESSE_MAX_PER_COMMODITY recent articles within
+# PRESSE_LOOKBACK_DAYS; direction/category are read from the headline.
+PRESSE_MAX_PER_COMMODITY = int(env("PRESSE_MAX_PER_COMMODITY", "4"))
+PRESSE_LOOKBACK_DAYS = int(env("PRESSE_LOOKBACK_DAYS", "14"))
+PRESSE_TIMEOUT = int(env("PRESSE_TIMEOUT", "20"))
+
+# Fallback source: Google News RSS, per commodity — covers the commodities the
+# publisher feeds don't reach (most metals, tropical softs). No real description
+# (its redirect link hides the article); same windowing knobs as presse.
 GNEWS_MAX_PER_COMMODITY = int(env("GNEWS_MAX_PER_COMMODITY", "4"))
 GNEWS_LOOKBACK_DAYS = int(env("GNEWS_LOOKBACK_DAYS", "14"))
 GNEWS_TIMEOUT = int(env("GNEWS_TIMEOUT", "20"))
