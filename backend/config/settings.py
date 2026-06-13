@@ -187,13 +187,12 @@ COMMODITIES_API_RATE_IS_PER_USD = env_bool("COMMODITIES_API_RATE_IS_PER_USD", Tr
 # update_prices chunks requests accordingly (1 slot reserved for EUR conversion).
 COMMODITIES_API_MAX_SYMBOLS = int(env("COMMODITIES_API_MAX_SYMBOLS", "10"))
 
-# GDELT (events) — bulk daily Events export (no rate-limited API).
-# Scan the last N daily files; flag a producing country once its material-conflict
-# coverage over the window crosses GDELT_MIN_ARTICLES (tuned against real volume).
-GDELT_EVENTS_URL = env("GDELT_EVENTS_URL", "http://data.gdeltproject.org/events")
-GDELT_LOOKBACK_DAYS = int(env("GDELT_LOOKBACK_DAYS", "3"))
-GDELT_MIN_ARTICLES = int(env("GDELT_MIN_ARTICLES", "3000"))
-GDELT_TIMEOUT = int(env("GDELT_TIMEOUT", "30"))
+# Commodity news (events) — real headlines from Google News RSS, per commodity.
+# The top GNEWS_MAX_PER_COMMODITY articles (1 per source) within GNEWS_LOOKBACK_DAYS
+# become events; direction is read from the headline (else neutral).
+GNEWS_MAX_PER_COMMODITY = int(env("GNEWS_MAX_PER_COMMODITY", "4"))
+GNEWS_LOOKBACK_DAYS = int(env("GNEWS_LOOKBACK_DAYS", "14"))
+GNEWS_TIMEOUT = int(env("GNEWS_TIMEOUT", "20"))
 
 # USGS (reserves/production) — bump USGS_MCS_ITEM_ID to the new ScienceBase item each year.
 USGS_ENABLED = env_bool("USGS_ENABLED", True)

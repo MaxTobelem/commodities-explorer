@@ -7,7 +7,7 @@ from commodities.models import ImportRun
 
 
 class Command(BaseCommand):
-    help = "Importe réserves/production (USGS), secteurs/produits (RMIS) et conflits (GDELT)."
+    help = "Importe réserves/production (USGS), secteurs/produits (RMIS) et actualités (Google News)."
 
     def handle(self, *args, **options):
         run = services.enrich_data()

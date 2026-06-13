@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from .base import EnrichmentProvider, PriceProvider
 from .commodities_api import CommoditiesApiProvider
-from .gdelt import GdeltProvider
+from .gnews import GoogleNewsProvider
 from .owid import OwidProvider
 from .rmis import RmisProvider
 from .usgs import UsgsProvider
@@ -24,7 +24,7 @@ _ENRICHMENT_PROVIDERS: list[EnrichmentProvider] = [
     UsgsProvider(),
     OwidProvider(),
     RmisProvider(),
-    GdeltProvider(),
+    GoogleNewsProvider(),
 ]
 
 

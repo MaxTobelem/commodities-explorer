@@ -13,6 +13,5 @@ DATABASES = {
     }
 }
 
-# Deterministic GDELT tests: scan a single day, low article threshold.
-GDELT_LOOKBACK_DAYS = 1
-GDELT_MIN_ARTICLES = 50
+# News tests: wide lookback so fixed-date fixture articles always pass the cutoff.
+GNEWS_LOOKBACK_DAYS = 36500

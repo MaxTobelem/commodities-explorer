@@ -1,7 +1,5 @@
 import datetime as dt
-import io
 import re
-import zipfile
 from decimal import Decimal
 
 import pytest
@@ -17,7 +15,7 @@ from commodities.datasources.base import (
     ReserveRecord,
     UsageRecord,
 )
-from commodities.datasources.gdelt import GDELT_EVENTS_URL, GdeltProvider
+from commodities.datasources.gnews import GOOGLE_NEWS_RSS, GoogleNewsProvider
 from commodities.datasources.owid import OWID_URL, OwidProvider
 from commodities.datasources.usgs import UsgsProvider
 from commodities.models import (
@@ -115,115 +113,108 @@ def test_enrich_data_isolates_provider_failure(monkeypatch):
     assert CommodityUsage.objects.filter(commodity=cobalt).count() == 1
 
 
-# --- GDELT (bulk daily Events export) --------------------------------------
+# --- Commodity news (Google News RSS) --------------------------------------
 
-GDELT_EVENTS_RE = re.compile(re.escape(GDELT_EVENTS_URL) + r"/\d{8}\.export\.CSV\.zip")
-
-
-def _gdelt_row(action_fips, *, quad="4", root="19", articles="150", url="http://news/x",
-               dateadded="20260611"):
-    """One 58-field GDELT 1.0 Event record (tab-separated)."""
-    row = [""] * 58
-    row[1] = "20260101"  # SQLDATE
-    row[28] = root  # EventRootCode
-    row[29] = quad  # QuadClass (4 = material conflict)
-    row[33] = articles  # NumArticles
-    row[50] = f"Somewhere, {action_fips}"  # ActionGeo_FullName
-    row[51] = action_fips  # ActionGeo_CountryCode (FIPS)
-    row[56] = dateadded  # DATEADDED (= file day)
-    row[57] = url  # SOURCEURL
-    return "\t".join(row)
+GNEWS_RE = re.compile(re.escape(GOOGLE_NEWS_RSS) + r".*")
 
 
-def _gdelt_zip(rows):
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as archive:
-        archive.writestr("20260611.export.CSV", "\n".join(rows) + "\n")
-    return buf.getvalue()
-
-
-def _producing(commodity, iso3, name):
-    country = Country.objects.create(name=name, iso3=iso3)
-    CommodityProduction.objects.create(
-        commodity=commodity, country=country, year=2024, production_t=Decimal("130000")
-    )
-    return country
+def _rss(items):
+    """Minimal Google News RSS body. items: (title, link, pubDate, source)."""
+    parts = ['<?xml version="1.0" encoding="UTF-8"?><rss><channel>']
+    for title, link, pub, source in items:
+        parts.append(
+            f"<item><title>{title}</title><link>{link}</link>"
+            f"<pubDate>{pub}</pubDate><source url='http://x'>{source}</source></item>"
+        )
+    parts.append("</channel></rss>")
+    return "".join(parts).encode("utf-8")
 
 
 @responses.activate
-def test_gdelt_flags_producer_country_in_material_conflict():
+def test_gnews_builds_events_from_real_headlines():
     cobalt = make_cobalt()
-    _producing(cobalt, "COD", "RD Congo")  # FIPS CG → COD
-    rows = [
-        _gdelt_row("CG", root="19", articles="120"),  # armed clashes (most covered)
-        _gdelt_row("CG", root="14", articles="40"),  # protests, same country
-        _gdelt_row("CG", quad="1", articles="999"),  # cooperation → ignored
-        _gdelt_row("US", root="19", articles="500"),  # not a producer here → ignored
+    items = [
+        ("Le cours du cobalt flambe sur fond de pénurie - Les Echos", "http://a",
+         "Fri, 12 Jun 2026 08:00:00 GMT", "Les Echos"),
+        ("Cobalt : la RDC bloque une mine - RFI", "http://b",
+         "Thu, 11 Jun 2026 08:00:00 GMT", "RFI"),
     ]
-    responses.add(responses.GET, GDELT_EVENTS_RE, body=_gdelt_zip(rows), status=200)
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
 
-    result = GdeltProvider().fetch([cobalt])
+    result = GoogleNewsProvider().fetch([cobalt])
 
-    assert len(result.impacts) == 1
-    impact = result.impacts[0]
-    assert impact.commodity == cobalt
-    assert "RD Congo" in impact.event_title
-    assert impact.direction == EventImpact.Direction.UP
-    assert impact.source_url == "http://news/x"
-    assert "Affrontements armés" in impact.description  # root 19 = most-covered event
-    assert "160 articles" in impact.description  # 120 + 40; cooperation row excluded
+    assert len(result.impacts) == 2
+    top = result.impacts[0]  # most recent first
+    assert top.commodity == cobalt
+    assert top.event_title == "Le cours du cobalt flambe sur fond de pénurie"  # " - source" stripped
+    assert top.event_type == Event.Type.ECONOMIC
+    assert top.source_url == "http://a"
+    assert top.source == "gnews"
+    assert top.direction == EventImpact.Direction.UP  # "flambe" / "pénurie"
+    assert "Les Echos" in top.description
 
 
 @responses.activate
-def test_gdelt_ignores_low_conflict():
+def test_gnews_reads_direction_else_neutral():
     cobalt = make_cobalt()
-    _producing(cobalt, "COD", "RD Congo")
-    responses.add(
-        responses.GET, GDELT_EVENTS_RE, body=_gdelt_zip([_gdelt_row("CG", articles="20")]), status=200
+    items = [
+        ("Les prix du cobalt reculent fortement - X", "http://d", "Fri, 12 Jun 2026 08:00:00 GMT", "X"),
+        ("Réunion annuelle sur le cobalt - Y", "http://n", "Thu, 11 Jun 2026 08:00:00 GMT", "Y"),
+    ]
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
+
+    by_url = {im.source_url: im for im in GoogleNewsProvider().fetch([cobalt]).impacts}
+
+    assert by_url["http://d"].direction == EventImpact.Direction.DOWN  # "reculent"
+    assert by_url["http://n"].direction == EventImpact.Direction.NEUTRAL  # no signal → no fake direction
+
+
+@responses.activate
+def test_gnews_caps_one_article_per_source():
+    cobalt = make_cobalt()
+    items = [
+        ("Cobalt prix jour 1 - Spam", "http://1", "Fri, 12 Jun 2026 08:00:00 GMT", "Spam"),
+        ("Cobalt prix jour 2 - Spam", "http://2", "Thu, 11 Jun 2026 08:00:00 GMT", "Spam"),
+        ("Cobalt analyse - Le Monde", "http://3", "Wed, 10 Jun 2026 08:00:00 GMT", "Le Monde"),
+    ]
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
+
+    impacts = GoogleNewsProvider().fetch([cobalt]).impacts
+
+    assert len(impacts) == 2  # only one of the two "Spam" articles kept
+    assert any("Le Monde" in im.description for im in impacts)
+
+
+@responses.activate
+def test_gnews_isolates_failure():
+    cobalt = make_cobalt()
+    responses.add(responses.GET, GNEWS_RE, status=404)
+
+    assert GoogleNewsProvider().fetch([cobalt]).impacts == []  # no crash, no events
+
+
+@responses.activate
+def test_refresh_events_replaces_news_and_purges_legacy():
+    cobalt = make_cobalt()
+    # A legacy GDELT "Tensions en…" event that the refresh must purge.
+    legacy = Event.objects.create(
+        title="Tensions en RD Congo (2026)", slug="tensions-en-rd-congo-2026", type=Event.Type.WAR
     )
-
-    assert GdeltProvider().fetch([cobalt]).impacts == []  # 20 < threshold (50 in tests)
-
-
-@responses.activate
-def test_gdelt_handles_missing_daily_file():
-    cobalt = make_cobalt()
-    _producing(cobalt, "COD", "RD Congo")
-    responses.add(responses.GET, GDELT_EVENTS_RE, status=404)
-
-    assert GdeltProvider().fetch([cobalt]).impacts == []  # missing file → no crash, no impact
-
-
-@responses.activate
-def test_gdelt_dates_event_from_dateadded():
-    cobalt = make_cobalt()
-    _producing(cobalt, "COD", "RD Congo")
-    responses.add(
-        responses.GET, GDELT_EVENTS_RE,
-        body=_gdelt_zip([_gdelt_row("CG", articles="150", dateadded="20260610")]), status=200,
+    EventImpact.objects.create(
+        event=legacy, commodity=cobalt, source="gdelt", direction=EventImpact.Direction.UP
     )
-
-    result = GdeltProvider().fetch([cobalt])
-
-    assert result.impacts[0].start_date == dt.date(2026, 6, 10)  # ingest day, never Jan 1
-
-
-@responses.activate
-def test_refresh_events_applies_only_gdelt_impacts():
-    cobalt = make_cobalt()
-    _producing(cobalt, "COD", "RD Congo")
-    responses.add(
-        responses.GET, GDELT_EVENTS_RE,
-        body=_gdelt_zip([_gdelt_row("CG", articles="150", dateadded="20260611")]), status=200,
-    )
+    items = [("Le cobalt grimpe en flèche - Les Echos", "http://a",
+              "Fri, 12 Jun 2026 08:00:00 GMT", "Les Echos")]
+    responses.add(responses.GET, GNEWS_RE, body=_rss(items), status=200)
 
     run = services.refresh_events()
 
     assert run.status == ImportRun.Status.SUCCESS
+    assert not Event.objects.filter(slug="tensions-en-rd-congo-2026").exists()  # legacy purged
     impact = EventImpact.objects.select_related("event").get(commodity=cobalt)
-    assert impact.event.start_date == dt.date(2026, 6, 11)
-    assert impact.event.source_url == "http://news/x"
-    assert impact.needs_review is True
+    assert impact.event.type == Event.Type.ECONOMIC
+    assert impact.event.source_url == "http://a"
+    assert impact.source == "gnews" and impact.needs_review is True
 
 
 USGS_SAMPLE = (

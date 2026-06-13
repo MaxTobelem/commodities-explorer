@@ -56,7 +56,7 @@ class CommodityAdmin(ModelAdmin):
 
     @action(description="Lancer une mise à jour complète")
     def run_full_update(self, request):
-        """Admin button: re-run the full enrichment pass (USGS/RMIS/GDELT)."""
+        """Admin button: re-run the full enrichment pass (USGS/RMIS/Google News)."""
         run = services.enrich_data(kind=ImportRun.Kind.FULL)
         level = messages.SUCCESS if run.status == ImportRun.Status.SUCCESS else messages.ERROR
         self.message_user(request, f"Mise à jour ({run.get_status_display()}) : {run.message}", level)

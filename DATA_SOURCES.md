@@ -23,7 +23,7 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 | **Commodities-API** | Cours frais USD + EUR | `update_prices` | ≤ 6 h (PRO) | **oui** |
 | **USGS** MCS | Production + réserves (métaux) | `enrich_data` | annuelle | non |
 | **Our World in Data** | Production (énergie, agricole) + réserves (pétrole, gaz, charbon) | `enrich_data` | annuelle | non |
-| **GDELT** | Événements / conflits → impacts | `refresh_events` / `enrich_data` | quotidienne | non |
+| **Google Actualités** (RSS) | Actualités de marché par matière → événements | `refresh_events` | quotidienne | non |
 | **Curé** (USGS, AIE, FAO…) | Secteurs d'usage % + produits | `import_curated` | manuelle | non |
 | **CLDR / Babel** | Noms de pays (français) | `relabel_countries` | — | non |
 
@@ -53,10 +53,10 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 - **Commande** : `enrich_data`.
 - **Maintenance** : mappings `DEFAULT_OWID` (production) et `DEFAULT_OWID_RESERVES` (réserves) dans `owid.py` ; clés = label World Bank (`price_symbol`).
 
-### 5. Événements — GDELT (gratuit, export quotidien bulk)
-- **Quoi** : on télécharge l'**export Events quotidien** de GDELT 1.0 (1 CSV/jour, ~7 Mo, HTTP simple, **pas de rate-limit**), on garde les événements de **conflit matériel** (CAMEO QuadClass 4) situés dans nos **pays producteurs**, et chaque pays au-dessus du seuil devient un événement « Tensions en {pays} » (`needs_review`).
-- **Commande** : `refresh_events` (quotidien, rapide) ; aussi joué par `enrich_data`. Description en **français natif** depuis le code CAMEO (pas de traduction) + **lien source** (colonne SOURCEURL).
-- **Réglages** : `GDELT_MIN_ARTICLES` (seuil d'articles sur la fenêtre, défaut 3000), `GDELT_LOOKBACK_DAYS` (jours scannés, défaut 3), `GDELT_MAX_COUNTRIES` (top producteurs/matière). Mapping FIPS→ISO3 dans `gdelt.py`.
+### 5. Actualités de marché — Google Actualités RSS (gratuit)
+- **Quoi** : pour chaque matière, on interroge le **flux RSS de recherche** de Google Actualités en français (`news.google.com/rss/search`) ciblé sur son marché (cours, production, récolte, mine, export…). Les articles récents deviennent des événements : le **vrai titre** est le titre de l'événement, avec **lien source** et **direction** lue dans le titre via un lexique FR (flambée/pénurie → hausse, recul/surplus → baisse, sinon neutre — pas de direction inventée). 1 article par source/matière pour diversifier.
+- **Commande** : `refresh_events` (quotidien, *delete-then-insert* : remplace le jeu d'actus précédent et purge les anciens « Tensions en… »). Pas de clé, pas de rate-limit pour ~39 requêtes/jour, **français direct** (zéro traduction).
+- **Réglages** : `GNEWS_MAX_PER_COMMODITY` (défaut 4), `GNEWS_LOOKBACK_DAYS` (défaut 14). Les requêtes par matière (`_QUERIES`) et le lexique de direction sont dans `gnews.py`.
 
 ### 6. Secteurs & produits — dataset curé (gratuit)
 - **Quoi** : parts d'usage par secteur (%) + produits du quotidien pour 22 matières, sourcés (USGS, AIE, FAO, instituts métiers).
@@ -72,9 +72,9 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 ```cron
 # Cours toutes les 6 h (Commodities-API plan PRO + repli World Bank)
 0 */6 * * *   cd /app/backend && python manage.py update_prices
-# Enrichissement complet (USGS/OWID/curé/GDELT), 1×/mois
+# Enrichissement complet (USGS/OWID/curé/Google News), 1×/mois
 0 3 1 * *     cd /app/backend && python manage.py refresh_data --skip update_prices
-# Événements GDELT seuls, chaque jour
+# Actualités de marché (Google News), chaque jour
 30 7 * * *    cd /app/backend && python manage.py refresh_events
 ```
 

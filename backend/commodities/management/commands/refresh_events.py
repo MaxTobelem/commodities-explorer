@@ -1,9 +1,9 @@
-"""Refresh only the GDELT events/impacts (for a frequent cron).
+"""Refresh commodity news events from Google News (for a daily cron).
 
     python manage.py refresh_events
 
 Lighter than ``enrich_data`` (which also re-pulls the annual USGS/OWID/RMIS data),
-so it can run on a frequent schedule to keep the events timeline current.
+so it can run daily to keep the per-commodity news feed current.
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -13,7 +13,7 @@ from commodities.models import ImportRun
 
 
 class Command(BaseCommand):
-    help = "Rafraîchit uniquement les événements GDELT (cron fréquent)."
+    help = "Rafraîchit les actualités de marché des matières (Google News, cron quotidien)."
 
     def handle(self, *args, **options):
         run = services.refresh_events()

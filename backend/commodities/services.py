@@ -261,22 +261,36 @@ def enrich_data(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
 
 
 def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
-    """Refresh only the GDELT events/impacts — lighter than enrich_data, for a more
-    frequent cron (news moves faster than the annual USGS/RMIS data)."""
+    """Refresh commodity news events (Google News) — lighter than enrich_data, for a
+    daily cron (news moves faster than the annual USGS/RMIS data).
+
+    Delete-then-insert: the current top headlines per commodity *replace* the
+    previous news set (and any legacy GDELT "Tensions en…" events), so the feed
+    stays current instead of growing without bound. A failed fetch (no impacts)
+    keeps the existing events rather than wiping them.
+    """
     run = ImportRun.objects.create(kind=kind)
     try:
         commodities = list(Commodity.objects.filter(is_active=True))
         merged = EnrichmentResult()
         errors: list[str] = []
         for provider in get_enrichment_providers():
-            if provider.key != "gdelt":
+            if provider.key != "gnews":
                 continue
             try:
                 merged.extend(provider.fetch(commodities))
             except Exception as exc:  # noqa: BLE001 — isolate the source failure
                 errors.append(f"{provider.key}: {type(exc).__name__}")
-        counts = _apply_enrichment(merged)
-        message = f"{counts['impacts']} impacts (GDELT)."
+        with transaction.atomic():
+            if merged.impacts:
+                stale = list(
+                    Event.objects.filter(impacts__source__in=["gnews", "gdelt"])
+                    .values_list("id", flat=True)
+                    .distinct()
+                )
+                Event.objects.filter(id__in=stale).delete()
+            counts = _apply_enrichment(merged)
+        message = f"{counts['impacts']} actualités (Google News)."
         if errors:
             message += " Avertissements: " + "; ".join(errors)
         run.finish(ImportRun.Status.SUCCESS, message)
@@ -350,7 +364,7 @@ def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
 
     for rec in result.impacts:
         # update_or_create (not get_or_create) so re-runs refresh the date/description
-        # — GDELT events are living signals, not rows frozen at first import.
+        # — news events are living signals, not rows frozen at first import.
         event, _ = Event.objects.update_or_create(
             slug=slugify(rec.event_title),
             defaults={
