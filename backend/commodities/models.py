@@ -145,7 +145,7 @@ class Event(TimeStamped):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     description = models.TextField(blank=True)
-    source_url = models.URLField(blank=True)
+    source_url = models.URLField(max_length=1000, blank=True)  # Google News links are long
 
     class Meta:
         verbose_name = "événement"
