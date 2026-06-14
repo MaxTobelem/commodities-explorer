@@ -55,8 +55,9 @@ _UNIT_FACTOR: dict[str, Decimal] = {
     "CORN": _LB_PER_KG * 1000 / 56 / 100,   # US cents/bushel (56 lb) → USD/t
     "SOYBEAN": _LB_PER_KG * 1000 / 60,      # USD/bushel (60 lb) → USD/t
     "RICE": _LB_PER_KG * 1000 / 100,        # USD/cwt (100 lb) → USD/t
-    # Already canonical (factor 1, omitted): XAU/XAG/XPT (USD/ozt), WHEAT/COAL (USD/t),
-    # NG (USD/mmbtu), BRENTOIL (USD/bbl).
+    "ZL": _LB_PER_KG * 1000,                # USD/lb → USD/t (soybean oil; calibrated vs WB)
+    # Already canonical (factor 1, omitted): XAU/XAG/XPT (USD/ozt), WHEAT/COAL/CPO/UREA (USD/t),
+    # NG/LNG-J (USD/mmbtu), BRENTOIL (USD/bbl), BANA-US (USD/kg).
 }
 
 

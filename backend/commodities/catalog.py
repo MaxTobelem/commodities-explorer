@@ -28,16 +28,16 @@ COMMODITY_CATALOG = [
     ("Pétrole brut (Brent)", "BRENT", _E, "USD/bbl", "worldbank", "Crude oil, Brent", "BRENTOIL"),
     ("Gaz naturel (Europe)", "GAZ-EU", _E, "USD/mmbtu", "worldbank", "Natural gas, Europe", ""),
     ("Gaz naturel (US)", "GAZ-US", _E, "USD/mmbtu", "worldbank", "Natural gas, US", "NG"),
-    ("GNL (Japon)", "GNL", _E, "USD/mmbtu", "worldbank", "Liquefied natural gas, Japan", ""),
+    ("GNL (Japon)", "GNL", _E, "USD/mmbtu", "worldbank", "Liquefied natural gas, Japan", "LNG-J"),
     ("Charbon (Australie)", "CHARBON", _E, "USD/t", "worldbank", "Coal, Australian", "COAL"),
     # Agricole — boissons
     ("Cacao", "CACAO", _A, "USD/kg", "worldbank", "Cocoa", "COCOA"),
     ("Café (Arabica)", "CAFE", _A, "USD/kg", "worldbank", "Coffee, Arabica", "COFFEE"),
     ("Thé", "THE", _A, "USD/kg", "worldbank", "Tea, avg 3 auctions", ""),
     # Agricole — oléagineux
-    ("Huile de palme", "PALME", _A, "USD/t", "worldbank", "Palm oil", ""),
+    ("Huile de palme", "PALME", _A, "USD/t", "worldbank", "Palm oil", "CPO"),
     ("Soja", "SOJA", _A, "USD/t", "worldbank", "Soybeans", "SOYBEAN"),
-    ("Huile de soja", "H-SOJA", _A, "USD/t", "worldbank", "Soybean oil", ""),
+    ("Huile de soja", "H-SOJA", _A, "USD/t", "worldbank", "Soybean oil", "ZL"),
     ("Huile de tournesol", "TOURNESOL", _A, "USD/t", "worldbank", "Sunflower oil", ""),
     # Agricole — céréales
     ("Blé (US HRW)", "BLE", _A, "USD/t", "worldbank", "Wheat, US HRW", "WHEAT"),
@@ -46,7 +46,7 @@ COMMODITY_CATALOG = [
     ("Orge", "ORGE", _A, "USD/t", "worldbank", "Barley", ""),
     # Agricole — autres aliments
     ("Sucre (mondial)", "SUCRE", _A, "USD/kg", "worldbank", "Sugar, world", "SUGAR"),
-    ("Banane", "BANANE", _A, "USD/kg", "worldbank", "Banana, US", ""),
+    ("Banane", "BANANE", _A, "USD/kg", "worldbank", "Banana, US", "BANA-US"),
     ("Bœuf", "BOEUF", _A, "USD/kg", "worldbank", "Beef", ""),
     ("Crevettes", "CREVETTE", _A, "USD/kg", "worldbank", "Shrimps, Mexican", ""),
     # Agricole — matières premières
@@ -57,7 +57,7 @@ COMMODITY_CATALOG = [
     # Engrais
     ("Phosphate (roche)", "PHOS", _F, "USD/t", "worldbank", "Phosphate rock", ""),
     ("DAP (engrais)", "DAP", _F, "USD/t", "worldbank", "DAP", ""),
-    ("Urée", "UREE", _F, "USD/t", "worldbank", "Urea", ""),
+    ("Urée", "UREE", _F, "USD/t", "worldbank", "Urea", "UREA"),
     ("Chlorure de potassium", "POTASSE", _F, "USD/t", "worldbank", "Potassium chloride", ""),
     # Métaux de base
     ("Aluminium", "ALU", _B, "USD/t", "worldbank", "Aluminum", "ALU"),
