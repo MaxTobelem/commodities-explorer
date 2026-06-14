@@ -136,7 +136,7 @@ class Event(TimeStamped):
         WAR = "war", "Conflit / Guerre"
         POLICY = "policy", "Politique / Régulation"
         DISASTER = "disaster", "Catastrophe"
-        ECONOMIC = "economic", "Économique"
+        ECONOMIC = "economic", "Marché"
         OTHER = "other", "Autre"
 
     title = models.CharField(max_length=200, unique=True)

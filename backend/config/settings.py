@@ -195,9 +195,15 @@ PRESSE_MAX_PER_COMMODITY = int(env("PRESSE_MAX_PER_COMMODITY", "4"))
 PRESSE_LOOKBACK_DAYS = int(env("PRESSE_LOOKBACK_DAYS", "14"))
 PRESSE_TIMEOUT = int(env("PRESSE_TIMEOUT", "20"))
 
-# Fallback source: Google News RSS, per commodity — covers the commodities the
-# publisher feeds don't reach (most metals, tropical softs). No real description
-# (its redirect link hides the article); same windowing knobs as presse.
+# Second primary source: English mining press (mining.py) for metals only — real
+# summaries (in English) where no fresh French feed exists. Same windowing knobs.
+MINING_MAX_PER_COMMODITY = int(env("MINING_MAX_PER_COMMODITY", "4"))
+MINING_LOOKBACK_DAYS = int(env("MINING_LOOKBACK_DAYS", "14"))
+MINING_TIMEOUT = int(env("MINING_TIMEOUT", "20"))
+
+# Fallback source: Google News RSS, per commodity — covers what presse & mining
+# don't reach (tropical softs, niche goods). No real description (its redirect
+# link hides the article); same windowing knobs as presse.
 GNEWS_MAX_PER_COMMODITY = int(env("GNEWS_MAX_PER_COMMODITY", "4"))
 GNEWS_LOOKBACK_DAYS = int(env("GNEWS_LOOKBACK_DAYS", "14"))
 GNEWS_TIMEOUT = int(env("GNEWS_TIMEOUT", "20"))

@@ -16,6 +16,7 @@ from commodities.datasources.base import (
     UsageRecord,
 )
 from commodities.datasources.gnews import GOOGLE_NEWS_RSS, GoogleNewsProvider
+from commodities.datasources.mining import MiningNewsProvider
 from commodities.datasources.owid import OWID_URL, OwidProvider
 from commodities.datasources.presse import PresseProvider
 from commodities.datasources.usgs import UsgsProvider
@@ -428,6 +429,121 @@ def test_refresh_events_presse_primary_gnews_fallback(settings):
     assert oil.source == "presse" and "Brent progresse" in oil.event.description  # real summary
     assert EventImpact.objects.get(commodity=cobalt).source == "gnews"  # gap filled by fallback
     assert not EventImpact.objects.filter(commodity=petrole, source="gnews").exists()  # no double-fetch
+
+
+# --- Commodity news (English mining feeds — mining) -------------------------
+
+
+def _make_cuivre():
+    return Commodity.objects.create(name="Cuivre", slug="cuivre", price_symbol="Copper")
+
+
+@responses.activate
+def test_mining_builds_metal_event_with_english_description(settings):
+    settings.MINING_FEEDS = [("Mining.com", "http://mine")]
+    cuivre = _make_cuivre()
+    chapo = "Copper futures climbed to a record high in London as a widening supply deficit hit the market."
+    responses.add(
+        responses.GET, "http://mine",
+        body=_presse_rss([
+            ("Copper hits record high on supply deficit", "http://c",
+             "Fri, 12 Jun 2026 08:00:00 GMT", chapo)
+        ]),
+        status=200,
+    )
+
+    impacts = MiningNewsProvider().fetch([cuivre]).impacts
+
+    assert len(impacts) == 1
+    im = impacts[0]
+    assert im.commodity == cuivre and im.source == "mining"
+    assert im.event_title == "Copper hits record high on supply deficit"
+    assert chapo in im.description and "Mining.com" in im.description  # real EN summary + attribution
+    assert im.direction == EventImpact.Direction.UP  # "record high" / "deficit"
+    assert im.source_url == "http://c"
+
+
+@responses.activate
+def test_mining_requires_metal_in_title(settings):
+    settings.MINING_FEEDS = [("X", "http://mine")]
+    cuivre = _make_cuivre()
+    responses.add(
+        responses.GET, "http://mine",
+        body=_presse_rss([
+            ("Markets rally on rate-cut hopes", "http://a", "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Copper and gold prices rose with the broader market.")
+        ]),
+        status=200,
+    )
+
+    # metal named only in the body, not the title → not attached.
+    assert MiningNewsProvider().fetch([cuivre]).impacts == []
+
+
+@responses.activate
+def test_mining_lead_pattern_ignores_the_verb(settings):
+    settings.MINING_FEEDS = [("X", "http://mine")]
+    cuivre = _make_cuivre()
+    plomb = Commodity.objects.create(name="Plomb", slug="plomb", price_symbol="Lead")
+    responses.add(
+        responses.GET, "http://mine",
+        body=_presse_rss([
+            ("Copper miner leads a $2bn supply expansion", "http://c",
+             "Fri, 12 Jun 2026 08:00:00 GMT", "The producer will lead new supply to the market.")
+        ]),
+        status=200,
+    )
+
+    impacts = MiningNewsProvider().fetch([cuivre, plomb]).impacts
+
+    assert [im.commodity.slug for im in impacts] == ["cuivre"]  # "leads"/"lead" ≠ the metal lead
+
+
+@responses.activate
+def test_mining_isolates_feed_failure(settings):
+    settings.MINING_FEEDS = [("Bad", "http://bad"), ("Good", "http://good")]
+    cuivre = _make_cuivre()
+    responses.add(responses.GET, "http://bad", status=404)
+    responses.add(
+        responses.GET, "http://good",
+        body=_presse_rss([
+            ("Copper price jumps on supply squeeze", "http://ok",
+             "Fri, 12 Jun 2026 08:00:00 GMT", "Prices rose on mine disruptions.")
+        ]),
+        status=200,
+    )
+
+    assert [im.source_url for im in MiningNewsProvider().fetch([cuivre]).impacts] == ["http://ok"]
+
+
+@responses.activate
+def test_refresh_events_mining_covers_metals_gnews_fills_rest(settings):
+    settings.MINING_FEEDS = [("Mining.com", "http://mine")]
+    cuivre = _make_cuivre()
+    cobalt = make_cobalt()
+    responses.add(
+        responses.GET, "http://mine",
+        body=_presse_rss([
+            ("Copper price jumps to record on supply deficit", "http://cu",
+             "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Copper rallied on a widening deficit and falling exchange stockpiles.")
+        ]),
+        status=200,
+    )
+    responses.add(
+        responses.GET, GNEWS_RE,
+        body=_rss([("Le cours du cobalt recule - RFI", "http://co",
+                    "Fri, 12 Jun 2026 08:00:00 GMT", "RFI")]),
+        status=200,
+    )
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    cu = EventImpact.objects.select_related("event").get(commodity=cuivre)
+    assert cu.source == "mining" and "Copper rallied" in cu.event.description  # real EN summary
+    assert EventImpact.objects.get(commodity=cobalt).source == "gnews"  # gap filled by fallback
+    assert not EventImpact.objects.filter(commodity=cuivre, source="gnews").exists()
 
 
 USGS_SAMPLE = (

@@ -17,7 +17,7 @@ from commodities.models import ImportRun
 STEPS = [
     ("import_commodities", "Catalogue des matières"),
     ("update_prices", "Cours (Commodities-API quotidien + repli World Bank)"),
-    ("enrich_data", "Production / réserves / usages / actualités (USGS, OWID, presse + Google News)"),
+    ("enrich_data", "Production / réserves / usages / actualités (USGS, OWID, presse+mining+Google News)"),
     ("import_curated", "Secteurs d'usage & produits (dataset curé)"),
     ("relabel_countries", "Uniformisation des noms de pays"),
 ]

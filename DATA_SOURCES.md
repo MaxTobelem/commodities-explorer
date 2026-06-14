@@ -23,8 +23,9 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 | **Commodities-API** | Cours frais USD + EUR | `update_prices` | ≤ 6 h (PRO) | **oui** |
 | **USGS** MCS | Production + réserves (métaux) | `enrich_data` | annuelle | non |
 | **Our World in Data** | Production (énergie, agricole) + réserves (pétrole, gaz, charbon) | `enrich_data` | annuelle | non |
-| **Presse RSS** (éditeurs FR) | Actualités de marché **avec résumé** → événements | `refresh_events` | quotidienne | non |
-| **Google Actualités** (RSS) | Repli actus pour les matières non couvertes par la presse | `refresh_events` | quotidienne | non |
+| **Presse RSS** (éditeurs FR) | Actualités **avec résumé** (énergie/agri) → événements | `refresh_events` | quotidienne | non |
+| **Mining press** (éditeurs EN) | Actualités **métaux avec résumé** (en anglais) → événements | `refresh_events` | quotidienne | non |
+| **Google Actualités** (RSS) | Repli actus pour les matières non couvertes ci-dessus | `refresh_events` | quotidienne | non |
 | **Curé** (USGS, AIE, FAO…) | Secteurs d'usage % + produits | `import_curated` | manuelle | non |
 | **CLDR / Babel** | Noms de pays (français) | `relabel_countries` | — | non |
 
@@ -54,12 +55,13 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 - **Commande** : `enrich_data`.
 - **Maintenance** : mappings `DEFAULT_OWID` (production) et `DEFAULT_OWID_RESERVES` (réserves) dans `owid.py` ; clés = label World Bank (`price_symbol`).
 
-### 5. Actualités de marché — presse RSS + repli Google Actualités (gratuit)
-Deux sources coordonnées par `refresh_events` (quotidien, *delete-then-insert* : remplace le jeu d'actus précédent et purge les anciens « Tensions en… »). Direction (flambée/pénurie → hausse, recul/repli → baisse, sinon neutre) et catégorie (guerre / catastrophe / politique / économique) sont lues dans un lexique FR partagé (`newslex.py`). Aucune clé, aucune direction inventée.
+### 5. Actualités de marché — presse RSS (FR + EN) + repli Google Actualités (gratuit)
+Trois sources coordonnées par `refresh_events` (quotidien, *delete-then-insert* : remplace le jeu d'actus précédent et purge les anciens « Tensions en… »). Direction (flambée/pénurie → hausse, recul/repli → baisse, sinon neutre) et catégorie (guerre / catastrophe / politique / marché) sont lues dans des lexiques partagés (`newslex.py` : FR + scorers génériques réutilisés par le lexique EN de `mining.py`). Aucune clé, aucune direction inventée. Règle anti-bruit commune : le terme matière doit apparaître **dans le titre** *et* le titre doit porter un signal de marché.
 
-- **Primaire — presse RSS (`presse.py`)** : flux d'**éditeurs français** dont chaque article porte un **vrai résumé** (chapô) → les événements ont une **vraie description**. Couvre surtout **énergie + agricole + engrais** (Connaissance des Énergies, La France Agricole, Terre-net, Web-agri, Le Monde, Le Figaro). Filtrage **strict** pour rester cohérent : le terme matière doit apparaître **dans le titre** *et* le titre doit porter un signal de marché (sinon on écarte les how-to agronomiques et les mentions hors-sujet) ; les mots ambigus (or, argent, fer, bois, gaz) exigent une expression désambiguïsée. Un article peut concerner plusieurs matières (1 événement, N impacts). Réglages : `PRESSE_MAX_PER_COMMODITY` (4), `PRESSE_LOOKBACK_DAYS` (14). Liste des flux = `FEEDS`, mapping matière = `_PATTERNS` dans `presse.py`.
-- **Repli — Google Actualités (`gnews.py`)** : pour les matières que la presse ne couvre pas (la plupart des **métaux**, **softs tropicaux**, produits de niche), on interroge le **flux RSS de recherche** de Google Actualités en français, ciblé par matière. Le vrai titre devient l'événement (pas de vraie description : le lien Google masque l'article). Réglages : `GNEWS_MAX_PER_COMMODITY` (4), `GNEWS_LOOKBACK_DAYS` (14) ; requêtes par matière dans `_QUERIES` (`gnews.py`).
-- **Étendre la couverture presse** : ajouter un flux à `FEEDS` (vérifier qu'il est **frais** et que `<description>` porte un vrai chapô), et au besoin un motif à `_PATTERNS`. Un bon candidat métaux/softs francophone manque encore (Agence Ecofin = chapôs riches mais flux gelés ; Commodafrica = 503).
+- **Primaire FR — presse (`presse.py`)** : flux d'**éditeurs français** dont chaque article porte un **vrai résumé** (chapô) → **vraie description**. Couvre surtout **énergie + agricole + engrais** (Connaissance des Énergies, La France Agricole, Terre-net, Web-agri, Le Monde, Le Figaro). Mots ambigus (or, argent, fer, bois, gaz) → expression désambiguïsée ; un article peut concerner plusieurs matières (1 événement, N impacts). Réglages : `PRESSE_*` ; flux = `FEEDS`, mapping = `_PATTERNS` dans `presse.py`.
+- **Primaire EN — mining (`mining.py`)** : pour les **métaux** (cuivre, or, argent, nickel, zinc, plomb, étain, aluminium, minerai de fer, platine, cobalt), flux de la **presse minière anglophone** avec vrai résumé — **descriptions en anglais**, faute d'équivalent FR frais (Mining.com, The Northern Miner). Lexiques EN + motifs métaux dans `mining.py`. Réglages : `MINING_*`.
+- **Repli — Google Actualités (`gnews.py`)** : pour ce que presse + mining ne couvrent pas (**softs tropicaux**, produits de niche, métaux sans actu du jour), flux RSS de recherche Google en français, ciblé par matière. Vrai titre, **pas de vraie description** (le lien Google masque l'article). Réglages : `GNEWS_*` ; requêtes dans `_QUERIES`.
+- **Étendre** : ajouter un flux à `presse.FEEDS` ou `mining.FEEDS` (vérifier qu'il est **frais** et que `<description>` porte un vrai chapô), et au besoin un motif à `_PATTERNS`. Manque toujours : un flux **softs tropicaux** (cacao, café, coton…) frais avec résumés (Agence Ecofin = chapôs riches mais flux gelés ; Commodafrica = 503).
 
 ### 6. Secteurs & produits — dataset curé (gratuit)
 - **Quoi** : parts d'usage par secteur (%) + produits du quotidien pour 22 matières, sourcés (USGS, AIE, FAO, instituts métiers).

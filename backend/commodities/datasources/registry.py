@@ -6,6 +6,7 @@ from __future__ import annotations
 from .base import EnrichmentProvider, PriceProvider
 from .commodities_api import CommoditiesApiProvider
 from .gnews import GoogleNewsProvider
+from .mining import MiningNewsProvider
 from .owid import OwidProvider
 from .presse import PresseProvider
 from .rmis import RmisProvider
@@ -20,14 +21,16 @@ _PRICE_PROVIDERS: dict[str, PriceProvider] = {
     UsgsPriceProvider.key: UsgsPriceProvider(),
 }
 
-# Enrichment providers: all run during the monthly enrichment pass. The two news
-# providers (presse, gnews) are also driven by refresh_events on a daily cadence,
-# where presse is primary and gnews fills the commodities it doesn't cover.
+# Enrichment providers: all run during the monthly enrichment pass. The news
+# providers (presse, mining, gnews) are also driven by refresh_events on a daily
+# cadence: presse (FR, energy/agri) + mining (EN, metals) are primary, gnews fills
+# whatever neither covers.
 _ENRICHMENT_PROVIDERS: list[EnrichmentProvider] = [
     UsgsProvider(),
     OwidProvider(),
     RmisProvider(),
     PresseProvider(),
+    MiningNewsProvider(),
     GoogleNewsProvider(),
 ]
 

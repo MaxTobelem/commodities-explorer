@@ -36,6 +36,7 @@ from .newslex import (
     make_session,
     normalize,
     parse_date,
+    summarize,
 )
 
 if TYPE_CHECKING:
@@ -107,10 +108,6 @@ _EXCLUDES: dict[str, tuple[str, ...]] = {
     "plomb": ("sans plomb", "plomb dans", "plombémie", "saturnisme"),
 }
 
-_MIN_SUMMARY = 40  # shorter than this ⇒ no real chapô, fall back to attribution
-_MAX_SUMMARY = 500
-
-
 def _match_slugs(norm_title: str) -> list[str]:
     """Commodity slugs whose pattern matches the (normalized) title."""
     return [
@@ -118,16 +115,6 @@ def _match_slugs(norm_title: str) -> list[str]:
         for slug, pat in _PATTERNS.items()
         if pat.search(norm_title) and not any(x in norm_title for x in _EXCLUDES.get(slug, ()))
     ]
-
-
-def _summary(raw_desc: str, publisher: str) -> str:
-    """The feed's real chapô (trimmed) + publisher attribution; fallback if empty."""
-    desc = clean_html(raw_desc)
-    if len(desc) < _MIN_SUMMARY:
-        return f"D'après {publisher}."
-    if len(desc) > _MAX_SUMMARY:
-        desc = desc[:_MAX_SUMMARY].rsplit(" ", 1)[0] + "…"
-    return f"{desc} — {publisher}"
 
 
 class PresseProvider(EnrichmentProvider):
@@ -200,7 +187,7 @@ class PresseProvider(EnrichmentProvider):
                         event_title=c["title"][:190],
                         event_type=categorize(blob),
                         start_date=c["date"],
-                        description=_summary(c["desc"], c["pub"]),
+                        description=summarize(c["desc"], c["pub"], f"D'après {c['pub']}."),
                         source_url=c["link"],
                         direction=direction(blob),
                         magnitude=None,

@@ -238,28 +238,51 @@ def parse_date(raw: str | None) -> dt.date | None:
         return None
 
 
-def direction(text: str) -> str:
-    t = normalize(text)
-    up = sum(1 for w in UP if w in t)
-    down = sum(1 for w in DOWN if w in t)
-    if up > down:
+def score_direction(norm_text: str, up: tuple[str, ...], down: tuple[str, ...]) -> str:
+    """UP/DOWN/NEUTRAL by counting lexicon hits in already-normalized text.
+
+    Takes the lexicons as arguments so an English news source can reuse it with
+    its own word lists (see datasources/mining.py)."""
+    n_up = sum(1 for w in up if w in norm_text)
+    n_down = sum(1 for w in down if w in norm_text)
+    if n_up > n_down:
         return EventImpact.Direction.UP
-    if down > up:
+    if n_down > n_up:
         return EventImpact.Direction.DOWN
     return EventImpact.Direction.NEUTRAL
 
 
-def categorize(text: str) -> str:
-    t = normalize(text)
-    if any(w in t for w in CAT_WAR):
+def classify(
+    norm_text: str, war: tuple[str, ...], disaster: tuple[str, ...], policy: tuple[str, ...]
+) -> str:
+    """Event category by priority: war > disaster > policy > else economic."""
+    if any(w in norm_text for w in war):
         return Event.Type.WAR
-    if any(w in t for w in CAT_DISASTER):
+    if any(w in norm_text for w in disaster):
         return Event.Type.DISASTER
-    if any(w in t for w in CAT_POLICY):
+    if any(w in norm_text for w in policy):
         return Event.Type.POLICY
     return Event.Type.ECONOMIC
+
+
+def direction(text: str) -> str:
+    return score_direction(normalize(text), UP, DOWN)
+
+
+def categorize(text: str) -> str:
+    return classify(normalize(text), CAT_WAR, CAT_DISASTER, CAT_POLICY)
 
 
 def is_relevant(text: str) -> bool:
     """True if the (head)line carries a market/war/disaster/policy signal."""
     return any(w in normalize(text) for w in RELEVANT)
+
+
+def summarize(raw_desc: str, publisher: str, fallback: str, *, max_len: int = 500) -> str:
+    """Real feed chapô (cleaned, trimmed) + ' — publisher'; `fallback` if too short."""
+    desc = clean_html(raw_desc)
+    if len(desc) < 40:
+        return fallback
+    if len(desc) > max_len:
+        desc = desc[:max_len].rsplit(" ", 1)[0] + "…"
+    return f"{desc} — {publisher}"

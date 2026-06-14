@@ -280,14 +280,16 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
         errors: list[str] = []
 
         covered: set[str] = set()
-        presse = providers.get("presse")
-        if presse is not None:
+        for key in ("presse", "mining"):  # primary sources — real article summaries
+            provider = providers.get(key)
+            if provider is None:
+                continue
             try:
-                res = presse.fetch(commodities)
+                res = provider.fetch(commodities)
                 merged.extend(res)
-                covered = {im.commodity.slug for im in res.impacts}
+                covered |= {im.commodity.slug for im in res.impacts}
             except Exception as exc:  # noqa: BLE001 — isolate the source failure
-                errors.append(f"presse: {type(exc).__name__}")
+                errors.append(f"{key}: {type(exc).__name__}")
 
         gnews = providers.get("gnews")
         if gnews is not None:
@@ -300,13 +302,13 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
         with transaction.atomic():
             if merged.impacts:
                 stale = list(
-                    Event.objects.filter(impacts__source__in=["presse", "gnews", "gdelt"])
+                    Event.objects.filter(impacts__source__in=["presse", "mining", "gnews", "gdelt"])
                     .values_list("id", flat=True)
                     .distinct()
                 )
                 Event.objects.filter(id__in=stale).delete()
             counts = _apply_enrichment(merged)
-        message = f"{counts['impacts']} actualités (presse + Google News)."
+        message = f"{counts['impacts']} actualités (presse + mining + Google News)."
         if errors:
             message += " Avertissements: " + "; ".join(errors)
         run.finish(ImportRun.Status.SUCCESS, message)

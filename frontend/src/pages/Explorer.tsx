@@ -46,7 +46,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "war", label: "Conflit / Guerre" },
   { value: "policy", label: "Politique" },
   { value: "disaster", label: "Catastrophe" },
-  { value: "economic", label: "Économique" },
+  { value: "economic", label: "Marché" },
   { value: "other", label: "Autre" },
 ]
 
