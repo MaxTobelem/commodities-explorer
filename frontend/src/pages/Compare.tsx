@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
-import { type Currency, formatPrice } from "@/lib/format"
+import { type Currency, formatPrice, formatUnit } from "@/lib/format"
 import type { Commodity, Paginated, PriceQuote } from "@/lib/types"
 
 const PALETTE = [
@@ -219,7 +219,9 @@ export function Compare() {
                         <TableCell className="text-right tabular-nums">
                           {formatPrice(currency === "usd" ? c.latest_price_usd : c.latest_price_eur, currency)}
                         </TableCell>
-                        <TableCell className="text-right text-muted-foreground">{c.price_unit}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatUnit(c.price_unit, currency)}
+                        </TableCell>
                       </TableRow>
                     )
                   })}

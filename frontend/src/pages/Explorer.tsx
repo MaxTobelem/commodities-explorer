@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api } from "@/lib/api"
-import { formatPrice } from "@/lib/format"
+import { formatPrice, formatUnit } from "@/lib/format"
 import type {
   Commodity,
   CommodityEvent,
@@ -285,9 +285,12 @@ function Results({ entity, data }: { entity: string; data: unknown[] }) {
                     <div>
                       <div className="text-2xl font-semibold tabular-nums">
                         {formatPrice(c.latest_price_usd, "usd")}
+                        <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                          · {formatUnit(c.price_unit, "usd")}
+                        </span>
                       </div>
                       <div className="text-sm text-muted-foreground tabular-nums">
-                        {formatPrice(c.latest_price_eur, "eur")} · {c.price_unit}
+                        {formatPrice(c.latest_price_eur, "eur")} · {formatUnit(c.price_unit, "eur")}
                       </div>
                     </div>
                     <div className="text-right">

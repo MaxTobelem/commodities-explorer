@@ -10,7 +10,7 @@ import { SourceTag } from "@/components/SourceTag"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { type Currency, formatDate, formatPrice, formatQuantity } from "@/lib/format"
+import { type Currency, formatDate, formatPrice, formatQuantity, formatUnit } from "@/lib/format"
 import { api } from "@/lib/api"
 import type {
   Commodity,
@@ -150,7 +150,7 @@ export function CommodityDetail() {
             </div>
           )}
           <div className="text-xs text-muted-foreground">
-            {c.price_unit} · {formatDate(c.latest_price_date)}
+            {formatUnit(c.price_unit, currency)} · {formatDate(c.latest_price_date)}
           </div>
           <div className="mt-1 flex justify-end">
             <SourceTag source={priceSource} />

@@ -9,6 +9,13 @@ export function formatPrice(value: string | number | null, currency: Currency = 
   return `${CURRENCY_SYMBOL[currency]}${num.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}`
 }
 
+export function formatUnit(unit: string | null | undefined, currency: Currency = "usd"): string {
+  // The canonical unit is USD-denominated (e.g. "USD/t"); show it in the displayed
+  // currency so a EUR price reads "EUR/t", not "USD/t".
+  if (!unit) return ""
+  return currency === "eur" ? unit.replace("USD", "EUR") : unit
+}
+
 export function formatTonnes(value: string | number | null): string {
   if (value === null || value === undefined) return "—"
   const num = typeof value === "string" ? Number(value) : value
