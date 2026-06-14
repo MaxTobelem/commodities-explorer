@@ -517,6 +517,31 @@ def test_mining_isolates_feed_failure(settings):
 
 
 @responses.activate
+def test_mining_translates_title_and_summary_to_french(settings, monkeypatch):
+    settings.MINING_FEEDS = [("Mining.com", "http://mine")]
+    settings.MINING_TRANSLATE = True
+    from commodities.datasources import mining as mining_mod
+
+    # Fake the translator (no network): tag each string so we can assert it was used.
+    monkeypatch.setattr(mining_mod, "_translate_fr", lambda texts: {t: f"[fr] {t}" for t in texts})
+    cuivre = _make_cuivre()
+    responses.add(
+        responses.GET, "http://mine",
+        body=_presse_rss([
+            ("Copper price jumps on supply deficit", "http://c", "Fri, 12 Jun 2026 08:00:00 GMT",
+             "Copper rallied on a widening supply deficit and falling stockpiles today.")
+        ]),
+        status=200,
+    )
+
+    im = MiningNewsProvider().fetch([cuivre]).impacts[0]
+
+    assert im.event_title == "[fr] Copper price jumps on supply deficit"  # title translated
+    assert im.description.startswith("[fr] Copper rallied")  # summary translated
+    assert im.direction == EventImpact.Direction.UP  # scored on English, before translation
+
+
+@responses.activate
 def test_refresh_events_mining_covers_metals_gnews_fills_rest(settings):
     settings.MINING_FEEDS = [("Mining.com", "http://mine")]
     cuivre = _make_cuivre()

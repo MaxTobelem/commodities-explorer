@@ -20,3 +20,5 @@ MINING_LOOKBACK_DAYS = 36500
 # Presse & mining are off by default in tests (no live feeds); their tests set their own.
 PRESSE_FEEDS: list[tuple[str, str]] = []
 MINING_FEEDS: list[tuple[str, str]] = []
+# No network translation in tests; the dedicated test flips it on with a fake.
+MINING_TRANSLATE = False
