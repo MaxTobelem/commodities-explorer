@@ -37,9 +37,9 @@ dans un import `FULL` visible dans l'admin (`/admin/` → Imports).
 - **Maintenance** : l'URL du fichier change chaque année → réglage `WORLD_BANK_XLSX_URL` (env) ou `worldbank.DEFAULT_URL`. La conversion EUR est approximative via `EUR_USD_RATE`.
 
 ### 2. Cours frais — Commodities-API (payant, optionnel)
-- **Quoi** : prix USD + EUR par ticker (ex. `XAU`, `BRENTOIL`). 27 matières couvertes (les autres → repli mensuel World Bank). Compléter via `check_api_symbols` + `calibrate_api_units` (valide le facteur d'unité avant de mapper).
+- **Quoi** : prix USD + EUR par ticker (ex. `XAU`, `BRENTOIL`). 46 matières couvertes (les autres → repli mensuel World Bank). Compléter via `check_api_symbols` + `calibrate_api_units` (valide le facteur d'unité avant de mapper ; indispensable pour les matières absentes de World Bank).
 - **Activer** : `COMMODITIES_API_KEY` dans `.env`. Sans clé → repli mensuel World Bank.
-- **Plan & fréquence** : **PRO** (~500 $/an, 1 000 appels/mois, 10 symboles/requête) → cron **toutes les 6 h** (~365 appels/mois). Pour l'horaire, passer en **PRO PLUS** (~1 000 $/an, 15 symboles/requête) et régler `COMMODITIES_API_MAX_SYMBOLS=15`.
+- **Plan & fréquence** : **PRO** (~500 $/an, 1 000 appels/mois, 10 symboles/requête). 46 symboles ⇒ 6 requêtes/run ; cron **1×/jour** ⇒ ~180 appels/mois. (Toutes les 6 h ⇒ ~720/mois, possible mais plus serré, surtout avec un backfill.) Pour plus de symboles/requête, passer en **PRO PLUS** (~1 000 $/an, 15 symboles/requête) et régler `COMMODITIES_API_MAX_SYMBOLS=15`.
 - **Plafond symboles/requête** : `COMMODITIES_API_MAX_SYMBOLS` (défaut 10) — `update_prices` découpe et fusionne les requêtes automatiquement (1 slot réservé à EUR).
 - **Tickers** : champ `Commodity.api_symbol` (défini dans `catalog.py`, éditable en admin).
 - **Valider / compléter** : `manage.py check_api_symbols` liste les tickers valides / invalides / manquants face à l'API.
@@ -75,11 +75,11 @@ Trois sources coordonnées par `refresh_events` (quotidien, *delete-then-insert*
 ## Cron (production)
 
 ```cron
-# Cours toutes les 6 h (Commodities-API plan PRO + repli World Bank)
-0 */6 * * *   cd /app/backend && python manage.py update_prices
-# Enrichissement complet (USGS/OWID/curé/Google News), 1×/mois
+# Cours 1×/jour (Commodities-API plan PRO + repli World Bank)
+0 6 * * *     cd /app/backend && python manage.py update_prices
+# Enrichissement complet (USGS/OWID/curé/presse+mining+Google News), 1×/mois
 0 3 1 * *     cd /app/backend && python manage.py refresh_data --skip update_prices
-# Actualités de marché (Google News), chaque jour
+# Actualités de marché (presse FR + mining EN + repli Google News), chaque jour
 30 7 * * *    cd /app/backend && python manage.py refresh_events
 ```
 

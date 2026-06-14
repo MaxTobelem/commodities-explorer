@@ -47,6 +47,7 @@ _UNIT_FACTOR: dict[str, Decimal] = {
     "TIN": _TROY_OZ_PER_TONNE,
     "LCO": _TROY_OZ_PER_TONNE,
     "IRON": _TROY_OZ_PER_TONNE,  # canonical USD/dmtu ≈ USD/t
+    "MG": _TROY_OZ_PER_TONNE,  # magnesium (calibrated: API quotes per troy ounce)
     # Agriculturals.
     "COCOA": Decimal("0.001"),              # USD/tonne → USD/kg
     "SUGAR": _LB_PER_KG,                    # USD/lb → USD/kg
@@ -56,8 +57,13 @@ _UNIT_FACTOR: dict[str, Decimal] = {
     "SOYBEAN": _LB_PER_KG * 1000 / 60,      # USD/bushel (60 lb) → USD/t
     "RICE": _LB_PER_KG * 1000 / 100,        # USD/cwt (100 lb) → USD/t
     "ZL": _LB_PER_KG * 1000,                # USD/lb → USD/t (soybean oil; calibrated vs WB)
-    # Already canonical (factor 1, omitted): XAU/XAG/XPT (USD/ozt), WHEAT/COAL/CPO/UREA (USD/t),
-    # NG/LNG-J (USD/mmbtu), BRENTOIL (USD/bbl), BANA-US (USD/kg).
+    "OATS": _LB_PER_KG * 1000 / 32,         # USD/bushel (32 lb) → USD/t
+    "LHOG": _LB_PER_KG / 100,               # US cents/lb → USD/kg (lean hog)
+    "ROBUSTA": Decimal("0.001"),            # USD/tonne → USD/kg (robusta coffee)
+    # Already canonical (factor 1, omitted): XAU/XAG/XPT/XPD/XRH (USD/ozt),
+    # WHEAT/COAL/CPO/UREA/NAPHTHA/METHANOL/US-HRC/SCRAP-HM/CANO/COCO-OIL/PVC/PP (USD/t),
+    # NG/LNG-J (USD/mmbtu), BRENTOIL/WTIOIL (USD/bbl), RB00/ETHANOL (USD/gal),
+    # BANA-US/SALMON (USD/kg), URANIUM (USD/lb).
 }
 
 

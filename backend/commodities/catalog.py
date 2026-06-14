@@ -18,6 +18,7 @@ _F = Commodity.Category.FERTILIZER
 _B = Commodity.Category.BASE
 _P = Commodity.Category.PRECIOUS
 _BAT = Commodity.Category.BATTERY
+_O = Commodity.Category.OTHER
 
 # (nom, symbole, catégorie, unité, fournisseur historique/repli, label WB, ticker Commodities-API)
 # La 7ᵉ colonne (api_symbol) alimente la MAJ QUOTIDIENNE via Commodities-API ; un
@@ -73,6 +74,33 @@ COMMODITY_CATALOG = [
     ("Argent", "ARGENT", _P, "USD/ozt", "worldbank", "Silver", "XAG"),
     # Batteries — cobalt (prix historique annuel USGS, absent du World Bank)
     ("Cobalt", "LCO", _BAT, "USD/t", "usgs_price", "Cobalt", "LCO"),
+    # --- Élargissement Commodities-API : cours QUOTIDIEN uniquement (pas de série
+    # World Bank → price_symbol vide). Unités calibrées contre le natif API + un prix
+    # de marché connu (cf. calibrate_api_units, 2026-06). ---
+    # Énergie
+    ("Uranium", "URANIUM", _E, "USD/lb", "worldbank", "", "URANIUM"),
+    ("Pétrole brut (WTI)", "WTI", _E, "USD/bbl", "worldbank", "", "WTIOIL"),
+    ("Essence (RBOB)", "RBOB", _E, "USD/gal", "worldbank", "", "RB00"),
+    ("Éthanol", "ETHANOL", _E, "USD/gal", "worldbank", "", "ETHANOL"),
+    ("Naphta", "NAPHTA", _E, "USD/t", "worldbank", "", "NAPHTHA"),
+    ("Méthanol", "METHANOL", _E, "USD/t", "worldbank", "", "METHANOL"),
+    # Métaux précieux
+    ("Palladium", "XPD", _P, "USD/ozt", "worldbank", "", "XPD"),
+    ("Rhodium", "XRH", _P, "USD/ozt", "worldbank", "", "XRH"),
+    # Métaux de base / industriels
+    ("Magnésium", "MG", _B, "USD/t", "worldbank", "", "MG"),
+    ("Acier (HRC)", "ACIER", _B, "USD/t", "worldbank", "", "US-HRC"),
+    ("Ferraille d'acier", "FERRAILLE", _B, "USD/t", "worldbank", "", "SCRAP-HM"),
+    # Agricole
+    ("Colza", "COLZA", _A, "USD/t", "worldbank", "", "CANO"),
+    ("Porc", "PORC", _A, "USD/kg", "worldbank", "", "LHOG"),
+    ("Café (Robusta)", "ROBUSTA", _A, "USD/kg", "worldbank", "", "ROBUSTA"),
+    ("Avoine", "AVOINE", _A, "USD/t", "worldbank", "", "OATS"),
+    ("Saumon", "SAUMON", _A, "USD/kg", "worldbank", "", "SALMON"),
+    ("Huile de coco", "COCO", _A, "USD/t", "worldbank", "", "COCO-OIL"),
+    # Industriels (plastiques)
+    ("PVC", "PVC", _O, "USD/t", "worldbank", "", "PVC"),
+    ("Polypropylène", "PP", _O, "USD/t", "worldbank", "", "PP"),
 ]
 
 

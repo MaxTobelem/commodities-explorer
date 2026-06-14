@@ -109,8 +109,9 @@ email. Tout autre appareil : **injoignable**.
 ```cron
 # crontab -e
 PATH=/usr/local/bin:/usr/bin:/bin
-# Cours toutes les 6 h (Commodities-API + repli World Bank)
-0 */6 * * *  cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices >> /home/ubuntu/declo-cron.log 2>&1
+# Cours 1×/jour à 06:00 (Commodities-API + repli World Bank). ~46 symboles ⇒ 6 req/run
+# ⇒ ~180 appels/mois (plafond 1000). Repasser à "0 */6 * * *" si besoin d'intraday.
+0 6 * * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py update_prices >> /home/ubuntu/declo-cron.log 2>&1
 # Enrichissement + curé + pays — le 1er du mois à 05:00
 0 5 1 * *    cd /opt/declo && docker compose -f docker-compose.prod.yml exec -T backend python manage.py refresh_data --skip update_prices >> /home/ubuntu/declo-cron.log 2>&1
 # Actualités de marché (presse FR + mining EN + repli Google News) — chaque jour à 07:30

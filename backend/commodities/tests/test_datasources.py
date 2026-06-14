@@ -76,18 +76,32 @@ def test_provider_applies_unit_factor(settings):
     """Per-symbol unit normalisation: metals troy-oz→tonne, softs lb/cents→kg."""
     settings.COMMODITIES_API_KEY = "test-key"
     # XCU (per troy ounce), SUGAR (USD/lb), COFFEE (US cents/lb).
-    mock_latest({"XCU": 2.5, "SUGAR": 7.0, "COFFEE": 0.5, "ZL": 2.0})
+    mock_latest({
+        "XCU": 2.5, "SUGAR": 7.0, "COFFEE": 0.5, "ZL": 2.0,
+        "MG": 10, "LHOG": 0.01, "OATS": 0.25, "ROBUSTA": 0.00025,
+    })
     cu = make_commodity("Cuivre", "XCU", price_unit="USD/t")
     sugar = make_commodity("Sucre", "SUGAR", price_unit="USD/kg")
     coffee = make_commodity("Café", "COFFEE", price_unit="USD/kg")
     soyoil = make_commodity("Huile de soja", "ZL", price_unit="USD/t")
+    mg = make_commodity("Magnésium", "MG", price_unit="USD/t")
+    hog = make_commodity("Porc", "LHOG", price_unit="USD/kg")
+    oats = make_commodity("Avoine", "OATS", price_unit="USD/t")
+    robusta = make_commodity("Café robusta", "ROBUSTA", price_unit="USD/kg")
 
-    res = {p.commodity.symbol: p for p in CommoditiesApiProvider().fetch_latest([cu, sugar, coffee, soyoil])}
+    res = {
+        p.commodity.symbol: p
+        for p in CommoditiesApiProvider().fetch_latest([cu, sugar, coffee, soyoil, mg, hog, oats, robusta])
+    }
 
     assert res["XCU"].price_usd == Decimal("12860.2986")  # 0.4 USD/ozt × 32150.7466
     assert res["SUGAR"].price_usd == Decimal("0.3149")  # 0.142857 USD/lb × 2.2046226
     assert res["COFFEE"].price_usd == Decimal("0.0441")  # 2.0 cents/lb × 2.2046226 / 100
     assert res["ZL"].price_usd == Decimal("1102.3113")  # 0.5 USD/lb × 2204.6226 (soybean oil)
+    assert res["MG"].price_usd == Decimal("3215.0747")  # 0.1 USD/ozt × 32150.7466 (magnesium)
+    assert res["LHOG"].price_usd == Decimal("2.2046")  # 100 cents/lb × 2.2046226 / 100 (lean hog)
+    assert res["OATS"].price_usd == Decimal("275.5778")  # 4 USD/bushel (32 lb) → USD/t
+    assert res["ROBUSTA"].price_usd == Decimal("4.0000")  # 4000 USD/t × 0.001 (robusta)
 
 
 @responses.activate
