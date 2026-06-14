@@ -336,6 +336,38 @@ def test_backfill_daily_service_imports_commodities_api_history(settings):
 
 
 @responses.activate
+def test_backfill_daily_missing_only_fetches_uncovered(settings):
+    """--missing skips commodities whose daily history already reaches back to start."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    settings.COMMODITIES_API_TIMESERIES_MAX_DAYS = 30
+    today = dt.date.today()
+    # XAU already has a daily quote before start (today-10) → covered, must be skipped.
+    xau = make_commodity("Or", "XAU")
+    PriceQuote.objects.create(
+        commodity=xau,
+        date=today - dt.timedelta(days=40),
+        source="commodities_api",
+        price_usd=Decimal("1900"),
+    )
+    make_commodity("Huile de soja", "ZL")  # newly mapped, no daily history → must be fetched
+    responses.add(
+        responses.GET,
+        TIMESERIES_URL,
+        json={"success": True, "rates": {today.isoformat(): {"ZL": 1.25, "EUR": 0.9}}},
+        status=200,
+    )
+
+    run = services.backfill_daily(days=10, missing=True)
+
+    assert run.status == ImportRun.Status.SUCCESS
+    requested: set[str] = set()
+    for call in responses.calls:
+        requested.update(parse_qs(urlparse(call.request.url).query).get("symbols", []))
+    assert "ZL" in requested and "XAU" not in requested  # only the uncovered ticker fetched
+    assert PriceQuote.objects.filter(commodity=xau, source="commodities_api").count() == 1  # untouched
+
+
+@responses.activate
 def test_backfill_daily_keeps_partial_progress_on_rate_limit(settings):
     """A 429 mid-run must not discard the points (and requests) already fetched."""
     settings.COMMODITIES_API_KEY = "test-key"

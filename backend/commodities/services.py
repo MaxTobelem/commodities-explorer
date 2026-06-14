@@ -148,9 +148,14 @@ def backfill_prices(days: int = 90) -> ImportRun:
     return run
 
 
-def backfill_daily(days: int = 30) -> ImportRun:
+def backfill_daily(days: int = 30, missing: bool = False) -> ImportRun:
     """Backfill recent DAILY prices from Commodities-API for commodities carrying an
-    ``api_symbol`` — fills the gap between the monthly World Bank history and today."""
+    ``api_symbol`` — fills the gap between the monthly World Bank history and today.
+
+    With ``missing=True``, only commodities whose Commodities-API history doesn't yet
+    reach back to ``start`` are fetched (i.e. newly-mapped tickers), so re-running
+    doesn't re-spend API quota on ranges already ingested.
+    """
     from django.conf import settings
 
     run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
@@ -165,6 +170,25 @@ def backfill_daily(days: int = 30) -> ImportRun:
         end = dt.date.today()
         start = end - dt.timedelta(days=days)
         commodities = [c for c in Commodity.objects.filter(is_active=True) if c.api_symbol]
+        if missing:
+            # Keep only commodities lacking daily history back to `start` (no quote on or
+            # before it) — the newly-mapped tickers — so we don't re-request ranges that
+            # are already ingested. A single recent quote (e.g. today's update_prices)
+            # doesn't count as covered.
+            covered = set(
+                PriceQuote.objects.filter(
+                    source="commodities_api", commodity__in=commodities, date__lte=start
+                )
+                .values_list("commodity_id", flat=True)
+                .distinct()
+            )
+            commodities = [c for c in commodities if c.id not in covered]
+        if not commodities:
+            run.finish(
+                ImportRun.Status.SUCCESS,
+                f"Aucune matière à backfiller (historique déjà couvert jusqu'au {start}).",
+            )
+            return run
 
         # Persist each commodity's points as they arrive (the provider yields symbol
         # by symbol) so a mid-run rate-limit/abort never discards the requests already
