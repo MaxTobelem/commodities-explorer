@@ -41,6 +41,52 @@ CANDIDATES: dict[str, str] = {
     "uree": "UREA",
     "chlorure-de-potassium": "POT-CHL",
     "tabac": "TOBACCO",
+    # --- Nouveaux candidats (tops + secondaires). Pas dans World Bank pour la plupart,
+    # donc pas de facteur calculé : on affiche le cours natif API, à interpréter à la
+    # main (magnitude + prix de marché connu) pour fixer l'unité canonique + le facteur.
+    # Énergie
+    "uranium": "URANIUM",
+    "petrole-brut-wti": "WTIOIL",
+    "diesel": "US-D",
+    "essence": "RB00",
+    "ethanol": "ETHANOL",
+    "propane": "PROPANE",
+    "naphta": "NAPHTHA",
+    "methanol": "METHANOL",
+    # Précieux / batterie / critiques
+    "palladium": "XPD",
+    "rhodium": "XRH",
+    "carbonate-de-lithium": "LITH-CAR",
+    "manganese": "MN",
+    "molybdene": "MO",
+    "magnesium": "MG",
+    "titane": "TITANIUM",
+    "tungstene": "TUNGSTEN",
+    "gallium": "GALLIUM",
+    "germanium": "GER",
+    "antimoine": "ANTIMONY",
+    "neodyme": "ND",
+    "dysprosium": "DYS",
+    # Acier
+    "acier-hrc": "US-HRC",
+    "ferraille": "SCRAP-HM",
+    "ferrochrome": "FE-CR",
+    "ferrosilicium": "FE-SI",
+    # Agricole / élevage
+    "colza": "CANO",
+    "porc": "LHOG",
+    "cafe-robusta": "ROBUSTA",
+    "jus-d-orange": "ORANGE",
+    "avoine": "OATS",
+    "laine": "WOOL",
+    "saumon": "SALMON",
+    "huile-de-coco": "COCO-OIL",
+    # Industrie / chimie
+    "polyethylene": "PE",
+    "polypropylene": "PP",
+    "pvc": "PVC",
+    "soude": "SODA-ASH",
+    "pate-a-papier": "KRAFT-PU",
 }
 
 # Known clean factors to suggest a match for the implied ratio.
