@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
+from statistics import median
 
 from django.db import transaction
 from django.utils.text import slugify
@@ -31,6 +32,11 @@ from .models import (
     Sector,
 )
 
+# A new daily quote deviating more than this factor from the commodity's recent
+# median is treated as bad upstream data (e.g. a feed returning the wrong currency,
+# which produced ~10× spikes on PVC) and rejected. Legit daily moves never approach it.
+PRICE_OUTLIER_FACTOR = 5
+
 
 def update_prices() -> ImportRun:
     """Fetch and upsert the latest price quotes for all active commodities.
@@ -51,12 +57,31 @@ def update_prices() -> ImportRun:
     run = ImportRun.objects.create(kind=ImportRun.Kind.PRICES)
     try:
         commodities = list(Commodity.objects.filter(is_active=True))
-        created = updated = 0
+        created = updated = rejected = 0
         priced_ids: set[int] = set()
         missing_providers: set[str] = set()
+        rejected_names: set[str] = set()
+
+        # Sanity baseline: median of each commodity's recent quotes (last 90 days).
+        # A new point outside ±PRICE_OUTLIER_FACTOR× the median is rejected as bad
+        # upstream data (so a wrong-currency spike never lands, nor recurs daily).
+        cutoff = dt.date.today() - dt.timedelta(days=90)
+        recent: dict[int, list] = defaultdict(list)
+        for cid, val in PriceQuote.objects.filter(date__gte=cutoff).values_list(
+            "commodity_id", "price_usd"
+        ):
+            recent[cid].append(val)
+        medians = {cid: median(vals) for cid, vals in recent.items() if len(vals) >= 5}
 
         def upsert(price) -> None:
-            nonlocal created, updated
+            nonlocal created, updated, rejected
+            med = medians.get(price.commodity.pk)
+            if med and not (
+                med / PRICE_OUTLIER_FACTOR <= price.price_usd <= med * PRICE_OUTLIER_FACTOR
+            ):
+                rejected += 1
+                rejected_names.add(price.commodity.name)
+                return  # absurd vs history → skip (keeps the previous good quote)
             _, was_created = PriceQuote.objects.update_or_create(
                 commodity=price.commodity,
                 date=price.date,
@@ -95,6 +120,8 @@ def update_prices() -> ImportRun:
         message = (
             f"{created} cours créés, {updated} mis à jour, {skipped} matières sans prix."
         )
+        if rejected:
+            message += f" {rejected} cours aberrants rejetés ({', '.join(sorted(rejected_names))})."
         if missing_providers:
             message += f" Fournisseurs inconnus: {', '.join(sorted(missing_providers))}."
         run.finish(ImportRun.Status.SUCCESS, message)

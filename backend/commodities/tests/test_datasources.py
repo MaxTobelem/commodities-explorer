@@ -202,6 +202,48 @@ def test_update_prices_falls_back_to_worldbank_when_api_misses(settings):
 
 
 @responses.activate
+def test_update_prices_rejects_currency_spike(settings):
+    """A daily quote ~10× the recent median (wrong-currency feed) is not stored."""
+    settings.COMMODITIES_API_KEY = "test-key"
+    pvc = make_commodity("PVC", "PVC", price_unit="USD/t")
+    today = dt.date.today()
+    for i in range(6):  # recent history ~ $650/t → median 650
+        PriceQuote.objects.create(
+            commodity=pvc, date=today - dt.timedelta(days=i + 1),
+            source="commodities_api", price_usd=Decimal("650"),
+        )
+    mock_latest({"PVC": 1 / 7000, "EUR": 0.9})  # native 1/rate ⇒ ~$7000 (RMB read as USD)
+
+    run = services.update_prices()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    assert not PriceQuote.objects.filter(commodity=pvc, price_usd__gte=Decimal("3250")).exists()
+    assert PriceQuote.objects.filter(commodity=pvc).count() == 6  # spike rejected, history kept
+    assert "aberrant" in run.message
+
+
+def test_prune_price_outliers_command():
+    pvc = make_commodity("PVC", "PVC", price_unit="USD/t")
+    today = dt.date.today()
+    for i in range(12):
+        PriceQuote.objects.create(
+            commodity=pvc, date=today - dt.timedelta(days=i),
+            source="commodities_api", price_usd=Decimal("650"),
+        )
+    spike = PriceQuote.objects.create(
+        commodity=pvc, date=today - dt.timedelta(days=20),
+        source="commodities_api", price_usd=Decimal("7000"),
+    )
+
+    call_command("prune_price_outliers", stdout=io.StringIO())  # dry-run keeps
+    assert PriceQuote.objects.filter(id=spike.id).exists()
+
+    call_command("prune_price_outliers", "--apply", stdout=io.StringIO())  # deletes
+    assert not PriceQuote.objects.filter(id=spike.id).exists()
+    assert PriceQuote.objects.filter(commodity=pvc).count() == 12  # the $650 series kept
+
+
+@responses.activate
 def test_check_api_symbols_reports_valid_invalid_and_blank(settings):
     settings.COMMODITIES_API_KEY = "test-key"
     # The live /symbols endpoint returns the {symbol: name} map at the JSON root.
