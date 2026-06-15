@@ -171,6 +171,13 @@ _PATTERNS: dict[str, re.Pattern[str]] = {
     "platine": r"\bplatinum\b",
     "argent": r"\bsilver\b",
     "cobalt": r"\bcobalt\b",
+    # Newly-mapped metals/energy the English mining press also covers.
+    "palladium": r"\bpalladium\b",
+    "rhodium": r"\brhodium\b",
+    "uranium": r"\buranium\b",
+    "magnesium": r"\bmagnesium\b",
+    "acier-hrc": r"\bsteel\b|\bhrc\b|hot-rolled",
+    "ferraille-d-acier": r"steel scrap|\bscrap\b",
 }
 _PATTERNS = {slug: re.compile(p, re.IGNORECASE) for slug, p in _PATTERNS.items()}
 _EXCLUDES: dict[str, tuple[str, ...]] = {

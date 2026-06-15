@@ -43,6 +43,7 @@ DEFAULT_USGS_NAMES = {
     "argent": "Silver",
     "minerai-de-fer": "Iron Ore",
     "platine": "Platinum-Group metals",
+    "magnesium": "Magnesium metal",  # USGS splits "Magnesium metal" / "Magnesium compounds"
 }
 
 # USGS country spellings → (ISO3, display name); pycountry resolves the rest.

@@ -94,6 +94,26 @@ _QUERIES: dict[str, str] = {
     "argent": '"cours de l\'argent" OR "prix de l\'argent" OR "once d\'argent"',
     # Batterie
     "cobalt": "cobalt (cours OR prix OR mine OR RDC OR production OR raffinage)",
+    # Élargissement Commodities-API (matières ajoutées en quotidien)
+    "uranium": "uranium (cours OR prix OR nucléaire OR production OR enrichissement)",
+    "petrole-brut-wti": "pétrole WTI (cours OR baril OR prix OR production)",
+    "essence-rbob": "essence (prix OR carburant OR raffinerie OR cours)",
+    "ethanol": "éthanol (cours OR prix OR biocarburant OR production)",
+    "naphta": "naphta (cours OR prix OR pétrochimie OR raffinage)",
+    "methanol": "méthanol (cours OR prix OR production OR pétrochimie)",
+    "palladium": "palladium (cours OR prix OR once OR catalytique OR production)",
+    "rhodium": "rhodium (cours OR prix OR once OR métal OR production)",
+    "magnesium": "magnésium (cours OR prix OR production OR métal OR Chine)",
+    "acier-hrc": "acier (cours OR prix OR sidérurgie OR production OR HRC)",
+    "ferraille-d-acier": "ferraille (acier OR cours OR prix OR recyclage OR sidérurgie)",
+    "colza": "colza (cours OR prix OR récolte OR production OR oléagineux)",
+    "porc": '(porc OR "viande porcine") (cours OR prix OR production OR élevage)',
+    "cafe-robusta": "café robusta (cours OR prix OR récolte OR production)",
+    "avoine": "avoine (cours OR prix OR récolte OR production OR céréale)",
+    "saumon": "saumon (cours OR prix OR élevage OR production OR Norvège)",
+    "huile-de-coco": '"huile de coco" (cours OR prix OR production OR coprah)',
+    "pvc": "PVC (cours OR prix OR production OR plastique OR résine)",
+    "polypropylene": "polypropylène (cours OR prix OR production OR plastique)",
 }
 
 _MARKET_TERMS = "cours OR prix OR production OR récolte OR marché OR exportations"

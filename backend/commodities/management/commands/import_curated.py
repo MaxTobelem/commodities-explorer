@@ -396,6 +396,258 @@ CURATED = {
             ("Lécithine", "Additif alimentaire (E322)"),
         ],
     },
+    # --- Élargissement Commodities-API : parts sourcées de façon éditoriale
+    # (organismes de référence), à valider/affiner en admin. ---
+    "uranium": {
+        "source": "World Nuclear Association / AIEA",
+        "usages": [
+            ("Production d'électricité", 95),
+            ("Défense & propulsion navale", 3),
+            ("Médical & recherche", 2),
+        ],
+        "products": [
+            ("Centrale nucléaire", "Combustible (pastilles d'UO₂)"),
+            ("Sous-marin nucléaire", "Combustible du réacteur"),
+        ],
+    },
+    "petrole-brut-wti": {
+        "source": "AIE / EIA",
+        "usages": [
+            ("Carburants", 65),
+            ("Pétrochimie", 15),
+            ("Chauffage & industrie", 12),
+            ("Bitumes & lubrifiants", 8),
+        ],
+        "products": [
+            ("Voiture", "Carburant (essence/diesel raffiné)"),
+            ("Plastiques", "Matière première pétrochimique"),
+            ("Route", "Bitume (revêtement)"),
+        ],
+    },
+    "essence-rbob": {
+        "source": "EIA",
+        "usages": [
+            ("Transport", 90),
+            ("Petits moteurs & loisirs", 6),
+            ("Industrie", 4),
+        ],
+        "products": [
+            ("Voiture", "Carburant (moteur essence)"),
+            ("Moto", "Carburant"),
+        ],
+    },
+    "ethanol": {
+        "source": "Renewable Fuels Association",
+        "usages": [
+            ("Biocarburants", 80),
+            ("Solvant industriel & pharma", 12),
+            ("Boissons & spiritueux", 8),
+        ],
+        "products": [
+            ("Carburant E85", "Composant du biocarburant"),
+            ("Gel hydroalcoolique", "Alcool désinfectant"),
+            ("Spiritueux", "Alcool de bouche"),
+        ],
+    },
+    "naphta": {
+        "source": "AIE / pétrochimie",
+        "usages": [
+            ("Pétrochimie", 75),
+            ("Carburants", 20),
+            ("Solvants", 5),
+        ],
+        "products": [
+            ("Plastiques", "Matière première (vapocraquage)"),
+            ("Essence", "Base de mélange"),
+        ],
+    },
+    "methanol": {
+        "source": "Methanol Institute",
+        "usages": [
+            ("Pétrochimie", 50),
+            ("Carburants", 25),
+            ("Résines & colles", 15),
+            ("Solvants", 10),
+        ],
+        "products": [
+            ("Plastiques & résines", "Précurseur (formaldéhyde)"),
+            ("Peinture", "Solvant"),
+            ("Biodiesel", "Réactif (transestérification)"),
+        ],
+    },
+    "palladium": {
+        "source": "World Platinum Investment Council / USGS",
+        "usages": [
+            ("Automobile", 80),
+            ("Électronique", 10),
+            ("Bijouterie", 6),
+            ("Catalyseurs", 4),
+        ],
+        "products": [
+            ("Voiture", "Pot catalytique (moteur essence)"),
+            ("Smartphone", "Composants électroniques"),
+            ("Bijou", "Or blanc (alliage)"),
+        ],
+    },
+    "rhodium": {
+        "source": "Johnson Matthey / USGS",
+        "usages": [
+            ("Automobile", 85),
+            ("Verre & chimie", 10),
+            ("Bijouterie", 5),
+        ],
+        "products": [
+            ("Voiture", "Pot catalytique (réduction des NOx)"),
+            ("Bijou", "Placage rhodié"),
+        ],
+    },
+    "magnesium": {
+        "source": "USGS / IMA",
+        "usages": [
+            ("Alliages d'aluminium", 35),
+            ("Pièces moulées", 35),
+            ("Sidérurgie", 13),
+            ("Chimie & autres", 17),
+        ],
+        "products": [
+            ("Voiture", "Pièces moulées légères"),
+            ("Ordinateur portable", "Châssis (alliage Mg)"),
+            ("Acier", "Agent de désulfuration"),
+        ],
+    },
+    "acier-hrc": {
+        "source": "World Steel Association",
+        "usages": [
+            ("Construction", 50),
+            ("Automobile", 16),
+            ("Machines & équipements", 14),
+            ("Énergie", 8),
+            ("Biens de consommation", 6),
+            ("Emballage", 6),
+        ],
+        "products": [
+            ("Voiture", "Carrosserie & châssis"),
+            ("Bâtiment", "Poutres & armatures"),
+            ("Électroménager", "Tôle (corps de l'appareil)"),
+        ],
+    },
+    "ferraille-d-acier": {
+        "source": "BIR / World Steel",
+        "usages": [
+            ("Sidérurgie", 90),
+            ("Fonderies", 10),
+        ],
+        "products": [
+            ("Acier recyclé", "Matière première des fours à arc"),
+            ("Voiture", "Acier recyclé (carrosserie)"),
+        ],
+    },
+    "colza": {
+        "source": "FAO / USDA",
+        "usages": [
+            ("Huile alimentaire", 55),
+            ("Biocarburants", 35),
+            ("Alimentation animale", 10),
+        ],
+        "products": [
+            ("Huile de cuisson", "Huile de colza"),
+            ("Biodiesel", "Ester méthylique de colza"),
+            ("Aliment pour bétail", "Tourteau de colza"),
+        ],
+    },
+    "porc": {
+        "source": "FAO / USDA",
+        "usages": [
+            ("Alimentation humaine", 70),
+            ("Charcuterie & transformation", 28),
+            ("Sous-produits", 2),
+        ],
+        "products": [
+            ("Jambon", "Charcuterie"),
+            ("Saucisse", "Viande transformée"),
+            ("Gélatine", "Sous-produit (collagène)"),
+        ],
+    },
+    "cafe-robusta": {
+        "source": "Organisation internationale du café",
+        "usages": [
+            ("Café soluble & instantané", 55),
+            ("Mélanges torréfiés", 40),
+            ("Décaféiné & extraits", 5),
+        ],
+        "products": [
+            ("Café soluble", "Base du café instantané"),
+            ("Capsule de café", "Mélange robusta"),
+        ],
+    },
+    "avoine": {
+        "source": "FAO",
+        "usages": [
+            ("Alimentation animale", 50),
+            ("Alimentation humaine", 40),
+            ("Boissons végétales", 10),
+        ],
+        "products": [
+            ("Flocons d'avoine", "Petit-déjeuner"),
+            ("Boisson à l'avoine", "Lait végétal"),
+        ],
+    },
+    "saumon": {
+        "source": "FAO / Nasdaq Salmon Index",
+        "usages": [
+            ("Alimentation humaine", 92),
+            ("Conserves", 5),
+            ("Sous-produits", 3),
+        ],
+        "products": [
+            ("Saumon fumé", "Produit transformé"),
+            ("Sushi", "Poisson cru"),
+        ],
+    },
+    "huile-de-coco": {
+        "source": "FAO / APCC",
+        "usages": [
+            ("Alimentation humaine", 50),
+            ("Cosmétiques", 30),
+            ("Oléochimie", 20),
+        ],
+        "products": [
+            ("Savon", "Corps gras saponifié"),
+            ("Cosmétique", "Agent hydratant"),
+            ("Plat cuisiné", "Matière grasse"),
+        ],
+    },
+    "pvc": {
+        "source": "PlasticsEurope",
+        "usages": [
+            ("Construction", 70),
+            ("Câbles & électricité", 10),
+            ("Emballage", 8),
+            ("Santé", 7),
+            ("Biens de consommation", 5),
+        ],
+        "products": [
+            ("Tuyau", "Canalisation PVC"),
+            ("Fenêtre", "Profilé de menuiserie"),
+            ("Carte bancaire", "Support plastique"),
+        ],
+    },
+    "polypropylene": {
+        "source": "PlasticsEurope",
+        "usages": [
+            ("Emballage", 30),
+            ("Biens de consommation", 20),
+            ("Automobile", 20),
+            ("Textiles", 15),
+            ("Santé", 8),
+            ("Machines & équipements", 7),
+        ],
+        "products": [
+            ("Emballage alimentaire", "Barquette / film"),
+            ("Voiture", "Pare-chocs & habitacle"),
+            ("Masque chirurgical", "Fibre non-tissée"),
+        ],
+    },
 }
 
 
