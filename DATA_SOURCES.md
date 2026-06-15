@@ -72,6 +72,18 @@ Trois sources coordonnées par `refresh_events` (quotidien, *delete-then-insert*
 - **Quoi** : libellés français uniques par ISO3 (`commodities/countries.py`).
 - **Commande** : `relabel_countries` (normalise l'existant). Les nouveaux imports posent déjà le nom français.
 
+## Couverture & limites connues (maintenance)
+
+**58 matières** : **46 en cours quotidien** (Commodities-API) + **12 en mensuel** (World Bank).
+
+**Les 12 en mensuel uniquement** — pas de ticker Commodities-API propre/calibrable (`calibrate_api_units` n'a pas donné de facteur d'unité fiable) :
+Gaz naturel (Europe), Thé, Huile de tournesol, Orge, Bœuf, Crevettes, Caoutchouc, Bois (grumes), Tabac, Phosphate (roche), DAP (engrais), Chlorure de potassium.
+→ Pour en passer une en quotidien : `check_api_symbols` (le ticker existe-t-il ?) puis `calibrate_api_units` ; ne mapper que si le facteur d'unité ressort propre.
+
+**Producteurs par pays (USGS / OWID)** — n'existent que pour les matières que ces sources couvrent. Parmi les 19 ajoutées en quotidien, **seul le magnésium** (USGS `"Magnesium metal"`) a des « Principaux producteurs » ; les **18 autres restent vides** (sans source publique par pays) : uranium (= EIA, non câblé), palladium/rhodium (PGM regroupés chez USGS), acier/ferraille, WTI, naphta, méthanol, essence, éthanol, plastiques (PVC/PP), colza, porc, café robusta, avoine, saumon, huile de coco. OWID s'indexe sur le label World Bank (`price_symbol`), que ces matières n'ont pas.
+
+**Candidats `/symbols` écartés** (données API douteuses, non ajoutés au catalogue) : Lithium (aucun facteur net), Manganèse (`0.0001` cassé), Propane (= copie d'uranium), Germanium (×5 trop haut), Dysprosium (×2), Molybdène / Titane / Tungstène / Ferrosilicium (grade ambigu), Diesel, Jus d'orange (ticker = fruit), Laine, Polyéthylène / Soude / Pâte à papier (cotés en RMB → facteur fixe impossible). Réévaluables avec `calibrate_api_units`. Antimoine / Néodyme / Gallium / Ferrochrome : *per-once-troy* plausible mais ~65 % de confiance — ajoutables flaggés si besoin.
+
 ## Cron (production)
 
 ```cron
