@@ -243,6 +243,26 @@ def test_prune_price_outliers_command():
     assert PriceQuote.objects.filter(commodity=pvc).count() == 12  # the $650 series kept
 
 
+def test_prune_keeps_smooth_long_term_trend():
+    """A smooth ×10 trend (e.g. gold since the 1960s) has no isolated spike → nothing
+    flagged. The comparison is to LOCAL neighbours, not a global median that would
+    wrongly flag the cheap early years."""
+    gold = make_commodity("Or", "XAU", price_unit="USD/ozt")
+    today = dt.date.today()
+    for i in range(100):  # 200 → 2000, gradual
+        price = (Decimal(200) + Decimal(1800) * Decimal(i) / Decimal(99)).quantize(Decimal("0.01"))
+        PriceQuote.objects.create(
+            commodity=gold, date=today - dt.timedelta(days=(100 - i) * 20),
+            source="worldbank", price_usd=price,
+        )
+
+    out = io.StringIO()
+    call_command("prune_price_outliers", stdout=out)
+
+    assert "Or:" not in out.getvalue()  # the trend is not an anomaly
+    assert PriceQuote.objects.filter(commodity=gold).count() == 100
+
+
 @responses.activate
 def test_check_api_symbols_reports_valid_invalid_and_blank(settings):
     settings.COMMODITIES_API_KEY = "test-key"

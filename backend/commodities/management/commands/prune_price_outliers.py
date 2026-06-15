@@ -1,10 +1,12 @@
 """Detect (and with --apply, delete) absurd price quotes.
 
-Points that deviate more than --factor× from a commodity's median are almost
-always bad upstream data — e.g. a feed that returned the commodity in the wrong
-currency, producing ~10× spikes in the backfilled history (seen on PVC). Dry-run
-by default; pass --apply to delete. Use this to clean existing data and to see
-which commodities are affected.
+A bad quote is one that deviates more than --factor× from its **local** neighbours
+(a rolling median of the nearby points in time), e.g. a feed that returned the
+commodity in the wrong currency, producing isolated ~10× spikes (seen on PVC).
+
+The comparison is LOCAL on purpose: a global median would wrongly flag legitimate
+long-term trends (gold went 20× since the 1960s) or real brief events. Dry-run by
+default; pass --apply to delete.
 
     python manage.py prune_price_outliers            # report only
     python manage.py prune_price_outliers --apply    # delete the outliers
@@ -19,12 +21,16 @@ from django.core.management.base import BaseCommand
 
 from commodities.models import Commodity, PriceQuote
 
+# Half-window (in points) for the local median — wide enough that a short bad
+# plateau stays a minority, narrow enough to track the price trend.
+_WINDOW = 30
+
 
 class Command(BaseCommand):
-    help = "Détecte/supprime les cours aberrants (écart × la médiane). --apply pour supprimer."
+    help = "Détecte/supprime les cours aberrants (écart × la médiane LOCALE). --apply pour supprimer."
 
     def add_arguments(self, parser):
-        parser.add_argument("--factor", type=float, default=5.0, help="Seuil (× la médiane).")
+        parser.add_argument("--factor", type=float, default=5.0, help="Seuil (× la médiane locale).")
         parser.add_argument("--apply", action="store_true", help="Supprimer (sinon dry-run).")
 
     def handle(self, *args, **options) -> None:
@@ -32,21 +38,21 @@ class Command(BaseCommand):
         apply = options["apply"]
         total = 0
         for commodity in Commodity.objects.filter(is_active=True).order_by("name"):
-            rows = list(commodity.prices.values_list("id", "price_usd"))
-            if len(rows) < 10:
-                continue  # too few points for a reliable median
-            med = median(v for _, v in rows)
-            if med <= 0:
-                continue
-            hi, lo = med * factor, med / factor
-            bad = [pid for pid, v in rows if v > hi or v < lo]
+            rows = list(commodity.prices.order_by("date").values_list("id", "price_usd"))
+            n = len(rows)
+            if n < 8:
+                continue  # too few points to judge
+            prices = [v for _, v in rows]
+            bad: list[int] = []
+            for i in range(n):
+                window = prices[max(0, i - _WINDOW) : i + _WINDOW + 1]
+                med = median(window)
+                if med > 0 and (prices[i] > med * factor or prices[i] < med / factor):
+                    bad.append(rows[i][0])
             if not bad:
                 continue
             total += len(bad)
-            self.stdout.write(
-                f"  {commodity.name}: médiane {med:.2f} {commodity.price_unit} — "
-                f"{len(bad)} aberrant(s) sur {len(rows)}"
-            )
+            self.stdout.write(f"  {commodity.name}: {len(bad)} aberrant(s) sur {n}")
             if apply:
                 PriceQuote.objects.filter(id__in=bad).delete()
         verb = "supprimés" if apply else "détectés (dry-run — ajoute --apply pour supprimer)"
