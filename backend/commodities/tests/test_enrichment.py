@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 import responses
+from django.utils import timezone
 
 from commodities import services
 from commodities.datasources.base import (
@@ -304,6 +305,45 @@ def test_refresh_events_skips_corrupt_record_and_keeps_the_rest(monkeypatch):
     assert Event.objects.filter(slug="cobalt-en-hausse").exists()  # good one survived
     assert EventImpact.objects.count() == 1
     assert "1 ignorée" in run.message
+
+
+def test_refresh_events_keeps_recent_news_purges_beyond_retention(monkeypatch):
+    # Rolling 31-day archive: pre-existing news no longer in any feed survives if
+    # it's within the window, and is purged once it's older.
+    cobalt = make_cobalt()
+    today = timezone.now().date()
+    recent = Event.objects.create(
+        title="Actu d'il y a 10 jours", slug="actu-recente",
+        type=Event.Type.ECONOMIC, start_date=today - dt.timedelta(days=10),
+    )
+    EventImpact.objects.create(
+        event=recent, commodity=cobalt, source="presse", direction=EventImpact.Direction.UP
+    )
+    old = Event.objects.create(
+        title="Actu d'il y a 40 jours", slug="actu-vieille",
+        type=Event.Type.ECONOMIC, start_date=today - dt.timedelta(days=40),
+    )
+    EventImpact.objects.create(
+        event=old, commodity=cobalt, source="presse", direction=EventImpact.Direction.UP
+    )
+
+    class P(EnrichmentProvider):
+        key = "presse"
+
+        def fetch(self, commodities):  # a fresh article (triggers the purge path)
+            return EnrichmentResult(impacts=[
+                ImpactRecord(cobalt, "Actu du jour", Event.Type.ECONOMIC, today,
+                             "d", "http://x", EventImpact.Direction.UP, None, "presse")
+            ])
+
+    monkeypatch.setattr(services, "get_enrichment_providers", lambda: [P()])
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    assert Event.objects.filter(slug="actu-recente").exists()       # within 31 j → kept
+    assert not Event.objects.filter(slug="actu-vieille").exists()   # beyond 31 j → purged
+    assert Event.objects.filter(slug="actu-du-jour").exists()       # fresh one inserted
 
 
 # --- Commodity news (publisher RSS — presse) --------------------------------

@@ -12,6 +12,8 @@ from collections import defaultdict
 from statistics import median
 
 from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 from django.utils.text import slugify
 
 from .countries import french_name
@@ -36,6 +38,14 @@ from .models import (
 # median is treated as bad upstream data (e.g. a feed returning the wrong currency,
 # which produced ~10× spikes on PVC) and rejected. Legit daily moves never approach it.
 PRICE_OUTLIER_FACTOR = 5
+
+# News-event sources (everything refresh_events manages). Used to scope the
+# retention purge so it never touches USGS/OWID/RMIS/curated qualitative rows.
+NEWS_SOURCES = ("presse", "mining", "gnews", "gdelt")
+# Rolling archive: refresh_events keeps this many days of news (by article date)
+# instead of wiping the whole set each run, so recent articles survive after they
+# drop out of the RSS feeds. Older (or undated) news no longer in the feed is purged.
+EVENT_RETENTION_DAYS = 31
 
 
 def update_prices() -> ImportRun:
@@ -319,9 +329,11 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
     its articles carry real summaries; **gnews** (Google News) then fills only the
     commodities presse didn't cover (most metals, tropical softs, niche goods).
 
-    Delete-then-insert: the fresh set *replaces* the previous news (and any legacy
-    GDELT "Tensions en…" events), so the feed stays current instead of growing
-    without bound. A failed fetch (no impacts) keeps the existing events.
+    Rolling archive (EVENT_RETENTION_DAYS): the fresh articles are upserted, then
+    news older than the window (or undated) that is *no longer in the current feed*
+    is purged — so the last ~month of news is kept even after articles fall out of
+    the RSS feeds, without the table growing without bound. A failed fetch (no
+    impacts) keeps the existing events untouched.
     """
     run = ImportRun.objects.create(kind=kind)
     try:
@@ -351,14 +363,23 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
                 errors.append(f"gnews: {type(exc).__name__}")
 
         with transaction.atomic():
+            # Upsert first so recurring articles get their dates refreshed before we
+            # decide what's stale (and so they land in the "keep" set below).
+            counts = _apply_enrichment(merged)
             if merged.impacts:
+                fresh_slugs = {slugify(rec.event_title) for rec in merged.impacts}
+                cutoff = timezone.now().date() - dt.timedelta(days=EVENT_RETENTION_DAYS)
+                # Purge news past the retention window (or undated) that is no longer
+                # surfaced by the feeds. Collect ids first: .distinct().delete() is
+                # disallowed, and the impacts join can duplicate event rows.
                 stale = list(
-                    Event.objects.filter(impacts__source__in=["presse", "mining", "gnews", "gdelt"])
+                    Event.objects.filter(impacts__source__in=NEWS_SOURCES)
+                    .filter(Q(start_date__lt=cutoff) | Q(start_date__isnull=True))
+                    .exclude(slug__in=fresh_slugs)
                     .values_list("id", flat=True)
                     .distinct()
                 )
                 Event.objects.filter(id__in=stale).delete()
-            counts = _apply_enrichment(merged)
         message = f"{counts['impacts']} actualités (presse + mining + Google News)."
         if counts["skipped"]:
             message += f" {counts['skipped']} ignorée(s) (données invalides)."
