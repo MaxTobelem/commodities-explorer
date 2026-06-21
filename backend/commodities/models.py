@@ -145,7 +145,10 @@ class Event(TimeStamped):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     description = models.TextField(blank=True)
-    source_url = models.URLField(max_length=1000, blank=True)  # Google News links are long
+    # TextField (not URLField): Google News redirect links are base64 blobs that
+    # can exceed any CharField ceiling (>1000 chars). Display-only (rendered as an
+    # href, never filtered/indexed), so an unbounded text column costs nothing.
+    source_url = models.TextField(blank=True)
 
     class Meta:
         verbose_name = "événement"

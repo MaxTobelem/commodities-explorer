@@ -360,6 +360,8 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
                 Event.objects.filter(id__in=stale).delete()
             counts = _apply_enrichment(merged)
         message = f"{counts['impacts']} actualités (presse + mining + Google News)."
+        if counts["skipped"]:
+            message += f" {counts['skipped']} ignorée(s) (données invalides)."
         if errors:
             message += " Avertissements: " + "; ".join(errors)
         run.finish(ImportRun.Status.SUCCESS, message)
@@ -370,7 +372,14 @@ def refresh_events(kind: str = ImportRun.Kind.ENRICH) -> ImportRun:
 
 @transaction.atomic
 def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
-    counts = {"production": 0, "reserves": 0, "usages": 0, "compositions": 0, "impacts": 0}
+    counts = {
+        "production": 0,
+        "reserves": 0,
+        "usages": 0,
+        "compositions": 0,
+        "impacts": 0,
+        "skipped": 0,
+    }
     country_cache: dict[str, Country] = {}
 
     def country_for(iso3: str, name: str) -> Country:
@@ -434,26 +443,33 @@ def _apply_enrichment(result: EnrichmentResult) -> dict[str, int]:
     for rec in result.impacts:
         # update_or_create (not get_or_create) so re-runs refresh the date/description
         # — news events are living signals, not rows frozen at first import.
-        event, _ = Event.objects.update_or_create(
-            slug=slugify(rec.event_title),
-            defaults={
-                "title": rec.event_title,
-                "type": rec.event_type,
-                "start_date": rec.start_date,
-                "description": rec.description,
-                "source_url": rec.source_url,
-            },
-        )
-        EventImpact.objects.update_or_create(
-            event=event,
-            commodity=rec.commodity,
-            defaults={
-                "direction": rec.direction,
-                "magnitude": rec.magnitude,
-                "source": rec.source,
-                "needs_review": True,
-            },
-        )
-        counts["impacts"] += 1
+        # Per-record savepoint: one pathological article (oversized value, bad data)
+        # must never abort the whole news refresh — skip it and keep the rest.
+        # (A DataError without a savepoint poisons the surrounding transaction.)
+        try:
+            with transaction.atomic():
+                event, _ = Event.objects.update_or_create(
+                    slug=slugify(rec.event_title),
+                    defaults={
+                        "title": rec.event_title,
+                        "type": rec.event_type,
+                        "start_date": rec.start_date,
+                        "description": rec.description,
+                        "source_url": rec.source_url,
+                    },
+                )
+                EventImpact.objects.update_or_create(
+                    event=event,
+                    commodity=rec.commodity,
+                    defaults={
+                        "direction": rec.direction,
+                        "magnitude": rec.magnitude,
+                        "source": rec.source,
+                        "needs_review": True,
+                    },
+                )
+            counts["impacts"] += 1
+        except Exception:  # noqa: BLE001 — drop the bad record, keep the batch alive
+            counts["skipped"] += 1
 
     return counts

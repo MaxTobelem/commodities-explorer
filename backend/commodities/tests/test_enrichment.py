@@ -254,6 +254,58 @@ def test_refresh_events_replaces_news_and_purges_legacy():
     assert impact.source == "gnews" and impact.needs_review is True
 
 
+def test_refresh_events_stores_long_google_news_url(monkeypatch):
+    # Google News redirect links are base64 blobs that exceed any CharField limit;
+    # source_url is a TextField so the whole URL round-trips (regression: it used
+    # to be URLField(1000) and one long link aborted the entire daily refresh).
+    cobalt = make_cobalt()
+    long_url = "https://news.google.com/rss/articles/" + "A" * 1500
+
+    class P(EnrichmentProvider):
+        key = "gnews"
+
+        def fetch(self, commodities):
+            return EnrichmentResult(impacts=[
+                ImpactRecord(cobalt, "Cobalt en hausse", Event.Type.ECONOMIC,
+                             dt.date(2026, 6, 1), "desc", long_url,
+                             EventImpact.Direction.UP, None, "gnews")
+            ])
+
+    monkeypatch.setattr(services, "get_enrichment_providers", lambda: [P()])
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    stored = Event.objects.get(slug="cobalt-en-hausse").source_url
+    assert stored == long_url and len(stored) > 1000  # stored whole, not truncated
+
+
+def test_refresh_events_skips_corrupt_record_and_keeps_the_rest(monkeypatch):
+    # A single pathological article must never abort the whole news refresh
+    # (per-record savepoint). The bad record (null title → NOT NULL violation) is
+    # dropped and counted; the good ones are saved and the run still succeeds.
+    cobalt = make_cobalt()
+    good = ImpactRecord(cobalt, "Cobalt en hausse", Event.Type.ECONOMIC, dt.date(2026, 6, 1),
+                        "desc", "http://ok", EventImpact.Direction.UP, None, "presse")
+    bad = ImpactRecord(cobalt, None, Event.Type.ECONOMIC, dt.date(2026, 6, 1),
+                       "x", "http://bad", EventImpact.Direction.NEUTRAL, None, "presse")
+
+    class P(EnrichmentProvider):
+        key = "presse"
+
+        def fetch(self, commodities):
+            return EnrichmentResult(impacts=[good, bad])
+
+    monkeypatch.setattr(services, "get_enrichment_providers", lambda: [P()])
+
+    run = services.refresh_events()
+
+    assert run.status == ImportRun.Status.SUCCESS
+    assert Event.objects.filter(slug="cobalt-en-hausse").exists()  # good one survived
+    assert EventImpact.objects.count() == 1
+    assert "1 ignorée" in run.message
+
+
 # --- Commodity news (publisher RSS — presse) --------------------------------
 
 
