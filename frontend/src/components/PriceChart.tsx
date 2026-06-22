@@ -25,6 +25,10 @@ export function PriceChart({ data, currency }: { data: PriceQuote[]; currency: C
   const color =
     values[values.length - 1] >= values[0] ? "var(--color-positive)" : "var(--color-destructive)"
 
+  // Show each data point as a dot (not just on hover). Hidden when the series is
+  // dense (e.g. 6M/1A/Max of daily data) where dots would merge into a blob.
+  const showDots = points.length <= 60
+
   return (
     <ResponsiveContainer width="100%" height={280}>
       <AreaChart data={points} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -67,6 +71,8 @@ export function PriceChart({ data, currency }: { data: PriceQuote[]; currency: C
           stroke={color}
           strokeWidth={2}
           fill="url(#priceFill)"
+          dot={showDots ? { r: 2.5, fill: color, stroke: "var(--color-background)", strokeWidth: 1 } : false}
+          activeDot={{ r: 4 }}
         />
       </AreaChart>
     </ResponsiveContainer>
