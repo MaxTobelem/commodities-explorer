@@ -122,3 +122,83 @@ export interface User {
   email: string
   is_staff: boolean
 }
+
+// --- Portfolios (trading simulation) ---------------------------------------
+
+export interface PortfolioSummary {
+  currency: string
+  cash: string
+  total_value: string
+  total_pnl: string
+  total_pnl_pct: string
+}
+
+export interface Portfolio {
+  id: number
+  name: string
+  base_currency: string
+  description: string
+  fee_percent: string
+  fee_fixed: string
+  created_at: string
+  summary: PortfolioSummary
+}
+
+export interface PortfolioTransaction {
+  id: number
+  date: string
+  kind: string
+  kind_display: string
+  commodity: CommodityMini | null
+  amount: string
+  quantity: string | null
+  unit_price: string | null
+  fee: string
+  note: string
+  created_at: string
+}
+
+export interface PortfolioPosition {
+  commodity: CommodityMini
+  quantity: string
+  avg_cost: string
+  price: string
+  cost_basis: string
+  market_value: string
+  unrealized_pnl: string
+  weight: string
+}
+
+export interface PortfolioValuation {
+  as_of: string
+  currency: string
+  cash: string
+  invested: string
+  positions_value: string
+  total_value: string
+  net_deposits: string
+  realized_pnl: string
+  unrealized_pnl: string
+  total_pnl: string
+  total_pnl_pct: string
+  fees_total: string
+  positions: PortfolioPosition[]
+}
+
+export interface PortfolioHistoryPoint {
+  date: string
+  value: string
+  invested: string
+  cash: string
+}
+
+export interface TransactionPreview {
+  kind: string
+  date: string
+  amount: string
+  quantity: string | null
+  unit_price: string | null
+  fee: string
+  cash_before: string
+  cash_after: string
+}

@@ -25,6 +25,10 @@ const ProductDetail = lazy(() =>
 const EventDetail = lazy(() =>
   import("@/pages/EntityDetails").then((m) => ({ default: m.EventDetail })),
 )
+const Portfolios = lazy(() => import("@/pages/Portfolios").then((m) => ({ default: m.Portfolios })))
+const PortfolioDetail = lazy(() =>
+  import("@/pages/PortfolioDetail").then((m) => ({ default: m.PortfolioDetail })),
+)
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -56,6 +60,8 @@ function AppRoutes() {
       >
         <Route path="/" element={<Explorer />} />
         <Route path="/compare" element={<Compare />} />
+        <Route path="/portfolios" element={<Portfolios />} />
+        <Route path="/portfolios/:id" element={<PortfolioDetail />} />
         <Route path="/commodity/:slug" element={<CommodityDetail />} />
         <Route path="/country/:iso3" element={<CountryDetail />} />
         <Route path="/sector/:slug" element={<SectorDetail />} />

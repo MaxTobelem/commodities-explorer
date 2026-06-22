@@ -29,6 +29,9 @@ export function Layout() {
             <NavLink to="/compare" className={navCls}>
               Comparer
             </NavLink>
+            <NavLink to="/portfolios" className={navCls}>
+              Portefeuilles
+            </NavLink>
           </nav>
           <div className="flex items-center gap-3">
             {user && (
