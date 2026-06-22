@@ -58,6 +58,40 @@ def test_list_includes_sparkline_oldest_to_newest(client, seeded):
     assert row["sparkline"] == [28000.0, 29000.0, 30000.0]
 
 
+def test_sparkline_limits_daily_series_to_one_month(client, seeded):
+    # Daily series: only the last ~month feeds the card sparkline (anchored on the
+    # latest point, 2024-06-01 → window back to 2024-05-02).
+    cobalt = Commodity.objects.get(slug="cobalt")  # seeded latest = 2024-06-01 (30000)
+    PriceQuote.objects.create(  # old point, out of the 1-month window → excluded
+        commodity=cobalt, date=dt.date(2024, 2, 1), price_usd=Decimal("99"), source="seed"
+    )
+    for day, price in ((5, 110), (10, 120), (15, 130), (20, 140), (25, 150), (30, 160)):
+        PriceQuote.objects.create(
+            commodity=cobalt, date=dt.date(2024, 5, day), price_usd=Decimal(price), source="seed"
+        )
+    row = next(c for c in client.get("/api/commodities/").json()["results"] if c["slug"] == "cobalt")
+
+    assert row["sparkline"] == [110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 30000.0]
+
+
+def test_sparkline_falls_back_to_recent_points_for_monthly_series(client, seeded):
+    # Monthly series: the 1-month window catches a single point, so the card falls
+    # back to the last SPARKLINE_MIN_POINTS (6) so it never goes blank.
+    cobalt = Commodity.objects.get(slug="cobalt")  # seeded latest = 2024-06-01 (30000)
+    for month, price in ((11, 1), (12, 2)):  # 2023 — beyond the last 6, dropped
+        PriceQuote.objects.create(
+            commodity=cobalt, date=dt.date(2023, month, 1), price_usd=Decimal(price), source="seed"
+        )
+    for month, price in ((1, 3), (2, 4), (3, 5), (4, 6), (5, 7)):  # 2024
+        PriceQuote.objects.create(
+            commodity=cobalt, date=dt.date(2024, month, 1), price_usd=Decimal(price), source="seed"
+        )
+    row = next(c for c in client.get("/api/commodities/").json()["results"] if c["slug"] == "cobalt")
+
+    # last 6 points by date, oldest→newest (the two 2023 points are dropped)
+    assert row["sparkline"] == [3.0, 4.0, 5.0, 6.0, 7.0, 30000.0]
+
+
 def test_detail_has_latest_price_annotation(client, seeded):
     body = client.get("/api/commodities/cobalt/").json()
     assert body["latest_price_usd"] == "30000.0000"

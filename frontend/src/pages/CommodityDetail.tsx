@@ -23,6 +23,7 @@ import type {
 } from "@/lib/types"
 
 const RANGES = [
+  { key: "1w", label: "1S", days: 7 },
   { key: "1m", label: "1M", days: 30 },
   { key: "6m", label: "6M", days: 182 },
   { key: "1y", label: "1A", days: 365 },
@@ -32,7 +33,7 @@ const RANGES = [
 export function CommodityDetail() {
   const { slug = "" } = useParams()
   const [currency, setCurrency] = useState<Currency>("usd")
-  const [range, setRange] = useState<string>("1m")
+  const [range, setRange] = useState<string>("1w")
   const [geo, setGeo] = useState<"production" | "reserves">("production")
 
   const commodity = useQuery({

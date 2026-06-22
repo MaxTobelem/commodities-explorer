@@ -16,7 +16,10 @@ from commodities.models import (
     Sector,
 )
 
-SPARKLINE_DAYS = 182  # card sparkline + % change window (~6 months)
+SPARKLINE_DAYS = 30  # card sparkline + % change window (~1 month)
+# Monthly-priced series have ≤1 point in a month; keep at least this many so the
+# card's trend line never goes blank (falls back to the most recent points).
+SPARKLINE_MIN_POINTS = 6
 
 # --- Mini serializers (compact references used across cross-links) -----------
 
@@ -77,19 +80,24 @@ class CommodityListSerializer(serializers.ModelSerializer):
         ]
 
     def get_sparkline(self, obj) -> list[float]:
-        # ~6 months of USD prices from the current source (oldest→newest) for the card
+        # ~1 month of USD prices from the current source (oldest→newest) for the card
         # sparkline + its % change. One source only so daily/monthly don't interleave,
-        # anchored on the latest point so a stale series still shows its last 6 months.
+        # anchored on the latest point so a stale series still shows its recent history.
+        # Monthly-priced series have too few points in a month → fall back to the last
+        # SPARKLINE_MIN_POINTS so the card keeps a trend line instead of going blank.
         latest = obj.prices.order_by("-date").first()
         if latest is None:
             return []
+        base = obj.prices.filter(source=latest.source)
         since = latest.date - dt.timedelta(days=SPARKLINE_DAYS)
-        prices = (
-            obj.prices.filter(source=latest.source, date__gte=since)
-            .order_by("date")
-            .values_list("price_usd", flat=True)
+        windowed = list(
+            base.filter(date__gte=since).order_by("date").values_list("price_usd", flat=True)
         )
-        return [float(p) for p in prices]
+        if len(windowed) < SPARKLINE_MIN_POINTS:
+            windowed = list(
+                base.order_by("-date").values_list("price_usd", flat=True)[:SPARKLINE_MIN_POINTS]
+            )[::-1]
+        return [float(p) for p in windowed]
 
 
 class CommodityDetailSerializer(CommodityListSerializer):
