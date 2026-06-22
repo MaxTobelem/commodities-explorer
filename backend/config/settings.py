@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     # Local.
     "commodities",
     "accounts",
+    "portfolios",
 ]
 
 MIDDLEWARE = [
