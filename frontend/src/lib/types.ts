@@ -202,3 +202,15 @@ export interface TransactionPreview {
   cash_before: string
   cash_after: string
 }
+
+export interface InvestQuote {
+  commodity: CommodityMini
+  date: string
+  unit_price: string
+  quantity: string
+  invested: string
+  fee: string
+  total: string
+  cash: string
+  shortfall: string
+}

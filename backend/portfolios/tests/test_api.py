@@ -59,10 +59,10 @@ def test_deposit_buy_and_valuation(alu):
     assert ca.post(f"{base}/transactions/", {"kind": "deposit", "date": "2024-06-01", "amount": "1000"}, format="json").status_code == 201
     r = ca.post(f"{base}/transactions/", {"kind": "buy", "date": "2024-06-01", "commodity": "aluminium", "amount": "500"}, format="json")
     assert r.status_code == 201
-    assert float(r.json()["fee"]) == 1.0  # 0.2% of 500
+    assert float(r.json()["fee"]) == 1.0  # 500 gross → 499 invested + 1 fee
 
     v = ca.get(f"{base}/valuation/?as_of=2024-06-01").json()
-    assert float(v["cash"]) == 499.0
+    assert float(v["cash"]) == 500.0  # gross 500 leaves cash 1000 - 500
     assert v["currency"] == "EUR"
     assert len(v["positions"]) == 1
     assert v["positions"][0]["commodity"]["slug"] == "aluminium"
@@ -84,7 +84,7 @@ def test_preview_does_not_persist(alu):
     r = ca.post(f"{base}/preview/", {"kind": "buy", "date": "2024-06-01", "commodity": "aluminium", "amount": "500"}, format="json")
     assert r.status_code == 200
     assert float(r.json()["fee"]) == 1.0
-    assert float(r.json()["cash_after"]) == 499.0
+    assert float(r.json()["cash_after"]) == 500.0  # 1000 - 500 gross
     # nothing saved: only the deposit remains
     assert len(ca.get(f"{base}/transactions/").json()) == 1
 
@@ -126,6 +126,49 @@ def test_delete_transaction(alu):
     tid = ca.post(f"{base}/transactions/", {"kind": "deposit", "date": "2024-06-01", "amount": "1000"}, format="json").json()["id"]
     assert ca.delete(f"{base}/transactions/{tid}/").status_code == 204
     assert ca.get(f"{base}/transactions/").json() == []
+
+
+def test_delete_portfolio_scoped_to_user(alu):
+    ca, _ = client_for("a")
+    cb, _ = client_for("b")
+    pid = make_portfolio(ca).json()["id"]
+    # user B cannot delete A's portfolio
+    assert cb.delete(f"/api/portfolios/{pid}/").status_code == 404
+    # owner can; it (and its transactions) are gone
+    ca.post(f"/api/portfolios/{pid}/transactions/", {"kind": "deposit", "date": "2024-06-01", "amount": "100"}, format="json")
+    assert ca.delete(f"/api/portfolios/{pid}/").status_code == 204
+    assert ca.get("/api/portfolios/").json()["count"] == 0
+
+
+def test_invest_endpoint_auto_deposit(alu):
+    ca, _ = client_for("a")
+    pid = make_portfolio(ca).json()["id"]  # empty portfolio
+    base = f"/api/portfolios/{pid}"
+    r = ca.post(f"{base}/invest/", {"commodity": "aluminium", "date": "2024-06-01", "amount": "1000", "auto_deposit": True}, format="json")
+    assert r.status_code == 201
+    assert [t["kind"] for t in r.json()] == ["deposit", "buy"]
+    v = ca.get(f"{base}/valuation/?as_of=2024-06-01").json()
+    assert float(v["cash"]) == 0.0
+    assert len(v["positions"]) == 1
+
+
+def test_invest_endpoint_rejects_without_auto_deposit(alu):
+    ca, _ = client_for("a")
+    pid = make_portfolio(ca).json()["id"]
+    r = ca.post(f"/api/portfolios/{pid}/invest/", {"commodity": "aluminium", "date": "2024-06-01", "amount": "1000"}, format="json")
+    assert r.status_code == 400
+    assert "manque" in r.json()["detail"]
+
+
+def test_invest_quote_reports_shortfall(alu):
+    ca, _ = client_for("a")
+    pid = make_portfolio(ca).json()["id"]
+    r = ca.post(f"/api/portfolios/{pid}/invest-quote/", {"commodity": "aluminium", "date": "2024-06-01", "amount": "1000"}, format="json")
+    assert r.status_code == 200
+    body = r.json()
+    assert float(body["shortfall"]) == 1000.0
+    assert float(body["fee"]) == 2.0  # 0.2% inclusive on 1000
+    assert body["commodity"]["slug"] == "aluminium"
 
 
 def test_currency_frozen_after_first_transaction(alu):

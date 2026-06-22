@@ -57,6 +57,21 @@ def compute_fee(portfolio: Portfolio, amount: Decimal) -> Decimal:
     return (amount * pct + portfolio.fee_fixed).quantize(Decimal("0.01"))
 
 
+def split_gross_buy(portfolio: Portfolio, gross: Decimal) -> tuple[Decimal, Decimal]:
+    """Split a **fees-included** buy: the user commits ``gross`` total cash, of which
+    part is invested and part is the broker fee, with ``invested + fee == gross``.
+
+    Solving ``gross = invested + invested*pct + fixed`` gives
+    ``invested = (gross - fixed) / (1 + pct)``. The fee is then the exact remainder
+    so the total cash out is precisely ``gross`` (asking "1000 € of X" with 1000 € of
+    cash never overdraws by the fee). Returns ``(invested, fee)``."""
+    pct = portfolio.fee_percent / Decimal("100")
+    invested = ((gross - portfolio.fee_fixed) / (Decimal("1") + pct)).quantize(Decimal("0.01"))
+    if invested <= ZERO:
+        raise PortfolioError("Montant trop faible pour couvrir les frais.")
+    return invested, gross - invested
+
+
 def price_at(commodity: Commodity, date: dt.date, currency: str) -> Decimal | None:
     """Latest price on/before ``date`` (carry-forward), daily source preferred,
     in ``currency``. None if no quote exists on/before that date."""
@@ -161,14 +176,21 @@ def prepare_transaction(
         if price is None or price <= ZERO:
             raise PortfolioError(f"Pas de cours pour {commodity.name} au {date:%d/%m/%Y}.")
         if amount is not None and quantity is None:
-            quantity = (amount / price)
+            if kind == Transaction.Kind.BUY:
+                # `amount` is the **total** cash committed, broker fees included:
+                # invested + fee == amount (so "1000 € of X" never overdraws by the fee).
+                amount, fee = split_gross_buy(portfolio, amount)
+                quantity = amount / price
+            else:  # SELL: `amount` is the gross proceeds; the fee is charged on top.
+                quantity = amount / price
+                fee = compute_fee(portfolio, amount)
         elif quantity is not None and amount is None:
             amount = (quantity * price).quantize(Decimal("0.01"))
+            fee = compute_fee(portfolio, amount)
         else:
             raise PortfolioError("Fournir soit un montant, soit une quantité (pas les deux).")
         if amount <= ZERO or quantity <= ZERO:
             raise PortfolioError("Montant/quantité doivent être positifs.")
-        fee = compute_fee(portfolio, amount)
         txn = Transaction(
             portfolio=portfolio, date=date, kind=kind, commodity=commodity,
             amount=amount, quantity=quantity, unit_price=price, fee=fee, note=note,
@@ -180,6 +202,75 @@ def prepare_transaction(
     timeline = _ordered(list(portfolio.transactions.all()) + [txn])
     _replay(timeline, validate=True)
     return txn
+
+
+# --- Invest from an asset page (deposit-if-needed + buy) ---------------------
+
+
+def invest_quote(
+    portfolio: Portfolio, commodity: Commodity, date: dt.date, gross: Decimal | None
+) -> dict:
+    """Dry-run a fees-included buy of ``gross`` on ``date`` *without* validating cash,
+    so the UI can show the breakdown and the **shortfall** (how much cash is missing)
+    before deciding whether to top up the portfolio."""
+    if gross is None or gross <= ZERO:
+        raise PortfolioError("Montant requis (> 0).")
+    price = price_at(commodity, date, portfolio.base_currency)
+    if price is None or price <= ZERO:
+        raise PortfolioError(f"Pas de cours pour {commodity.name} au {date:%d/%m/%Y}.")
+    invested, fee = split_gross_buy(portfolio, gross)
+    cash = value_portfolio(portfolio, date)["cash"]
+    return {
+        "commodity": commodity,
+        "date": date,
+        "unit_price": price,
+        "quantity": invested / price,
+        "invested": invested,
+        "fee": fee,
+        "total": gross,
+        "cash": cash,
+        "shortfall": max(ZERO, gross - cash),
+    }
+
+
+def invest(
+    portfolio: Portfolio,
+    commodity: Commodity,
+    date: dt.date,
+    gross: Decimal | None,
+    *,
+    auto_deposit: bool = False,
+) -> list[Transaction]:
+    """Buy ``gross`` (fees included) of ``commodity`` on ``date``. If the cash on that
+    date is short and ``auto_deposit`` is set, first deposit exactly the missing amount
+    (so the buy lands cash-neutral); otherwise raise so the caller can prompt the user.
+    Deposit + buy are committed atomically."""
+    from django.db import transaction as db_tx
+
+    if gross is None or gross <= ZERO:
+        raise PortfolioError("Montant requis (> 0).")
+
+    with db_tx.atomic():
+        created: list[Transaction] = []
+        cash = value_portfolio(portfolio, date)["cash"]
+        if cash < gross:
+            shortfall = (gross - cash).quantize(Decimal("0.01"))
+            if not auto_deposit:
+                raise PortfolioError(
+                    f"Trésorerie insuffisante : il manque {shortfall} {portfolio.base_currency}."
+                )
+            dep = prepare_transaction(
+                portfolio, kind=Transaction.Kind.DEPOSIT, date=date,
+                amount=shortfall, note="Dépôt pour investissement",
+            )
+            dep.save()
+            created.append(dep)
+        buy = prepare_transaction(
+            portfolio, kind=Transaction.Kind.BUY, date=date, commodity=commodity, amount=gross,
+        )
+        buy.save()
+        created.append(buy)
+    return created
 
 
 # --- Valuation --------------------------------------------------------------

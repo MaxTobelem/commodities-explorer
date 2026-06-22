@@ -64,6 +64,20 @@ class HistoryPointSerializer(serializers.Serializer):
     cash = _Decimal2()
 
 
+class InvestQuoteSerializer(serializers.Serializer):
+    """Dry-run of a fees-included buy from an asset page (with the cash shortfall)."""
+
+    commodity = CommodityMiniSerializer()
+    date = serializers.DateField()
+    unit_price = serializers.DecimalField(max_digits=18, decimal_places=4)
+    quantity = serializers.DecimalField(max_digits=24, decimal_places=8)
+    invested = _Decimal2()
+    fee = _Decimal2()
+    total = _Decimal2()
+    cash = _Decimal2()
+    shortfall = _Decimal2()
+
+
 class PortfolioSummarySerializer(serializers.Serializer):
     currency = serializers.CharField()
     cash = _Decimal2()

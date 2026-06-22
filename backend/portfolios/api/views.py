@@ -32,6 +32,15 @@ def _decimal(data, key):
         raise services.PortfolioError(f"Valeur numérique invalide pour {key}.") from exc
 
 
+def _commodity(slug):
+    if not slug:
+        raise services.PortfolioError("Matière requise.")
+    commodity = Commodity.objects.filter(slug=slug).first()
+    if commodity is None:
+        raise services.PortfolioError(f"Matière inconnue : {slug}.")
+    return commodity
+
+
 def _prepare(portfolio, data):
     commodity = None
     slug = data.get("commodity")
@@ -125,6 +134,40 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 "cash_after": cash_after,
             }
         )
+
+    # -- Invest from an asset page (deposit-if-needed + buy) -----------------
+
+    @action(detail=True, methods=["post"], url_path="invest-quote")
+    def invest_quote(self, request, pk=None):
+        """Breakdown + cash shortfall of a fees-included buy, without saving."""
+        pf = self.get_object()
+        try:
+            quote = services.invest_quote(
+                pf,
+                _commodity(request.data.get("commodity")),
+                _date(request.data.get("date"), dt.date.today()),
+                _decimal(request.data, "amount"),
+            )
+        except services.PortfolioError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(s.InvestQuoteSerializer(quote).data)
+
+    @action(detail=True, methods=["post"])
+    def invest(self, request, pk=None):
+        """Buy a commodity from its page; with ``auto_deposit`` it first tops up the
+        exact missing cash, then buys (atomically)."""
+        pf = self.get_object()
+        try:
+            created = services.invest(
+                pf,
+                _commodity(request.data.get("commodity")),
+                _date(request.data.get("date"), dt.date.today()),
+                _decimal(request.data, "amount"),
+                auto_deposit=bool(request.data.get("auto_deposit")),
+            )
+        except services.PortfolioError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(s.TransactionSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="transactions/batch")
     def transactions_batch(self, request, pk=None):
