@@ -1,6 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Trash2, Wallet } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Minus,
+  Plus,
+  Trash2,
+  Wallet,
+} from "lucide-react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   Area,
@@ -18,8 +28,10 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Combobox } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Modal } from "@/components/ui/modal"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -33,9 +45,11 @@ import { ApiError, api } from "@/lib/api"
 import { type Currency, formatDate, formatPrice } from "@/lib/format"
 import type {
   Commodity,
+  InvestQuote,
   Paginated,
   Portfolio,
   PortfolioHistoryPoint,
+  PortfolioPosition,
   PortfolioTransaction,
   PortfolioValuation,
   Sector,
@@ -70,6 +84,7 @@ export function PortfolioDetail() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [asOf, setAsOf] = useState(TODAY)
+  const [cashKind, setCashKind] = useState<"deposit" | "withdraw" | null>(null)
 
   const portfolio = useQuery({
     queryKey: ["portfolio", id],
@@ -143,21 +158,35 @@ export function PortfolioDetail() {
         <OnboardingCard portfolioId={id} currency={currency} onDone={refresh} />
       ) : (
         <>
-          {/* Summary */}
+          {/* Summary — P&L total now folds in the fees paid */}
           {v && (
-            <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
               <SummaryCard label="Valeur totale" value={formatPrice(v.total_value, currency)} />
               <SummaryCard label="Trésorerie" value={formatPrice(v.cash, currency)} />
               <SummaryCard label="Investi (coût)" value={formatPrice(v.invested, currency)} />
               <SummaryCard
                 label="P&L total"
                 value={`${Number(v.total_pnl) >= 0 ? "+" : ""}${formatPrice(v.total_pnl, currency)}`}
-                sub={`${Number(v.total_pnl_pct) >= 0 ? "+" : ""}${Number(v.total_pnl_pct).toFixed(1)}% · réalisé ${formatPrice(v.realized_pnl, currency)}`}
                 cls={pnlClass(Number(v.total_pnl))}
+                sub={
+                  <>
+                    {Number(v.total_pnl_pct) >= 0 ? "+" : ""}{Number(v.total_pnl_pct).toFixed(1)}% · réalisé {formatPrice(v.realized_pnl, currency)}
+                    <span className="block text-muted-foreground">dont {formatPrice(v.fees_total, currency)} de frais</span>
+                  </>
+                }
               />
-              <SummaryCard label="Frais payés" value={formatPrice(v.fees_total, currency)} />
             </div>
           )}
+
+          {/* Cash actions */}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCashKind("deposit")}>
+              <Plus className="size-4" /> Déposer
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCashKind("withdraw")}>
+              <Minus className="size-4" /> Retirer
+            </Button>
+          </div>
 
           {/* Value over time */}
           <Card>
@@ -194,25 +223,7 @@ export function PortfolioDetail() {
 
           {/* Composition + positions */}
           <div className="grid gap-4 lg:grid-cols-3">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Composition</CardTitle></CardHeader>
-              <CardContent>
-                {v && v.positions.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie data={v.positions.map((pos) => ({ name: pos.commodity.name, value: Number(pos.market_value) }))}
-                        dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={2}>
-                        {v.positions.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip formatter={(val) => formatPrice(Number(val), currency)}
-                        contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Aucune position — achetez une matière ci-dessous.</p>
-                )}
-              </CardContent>
-            </Card>
+            <CompositionChart positions={v?.positions ?? []} currency={currency} />
 
             <Card className="lg:col-span-2">
               <CardHeader><CardTitle className="text-base">Positions</CardTitle></CardHeader>
@@ -256,65 +267,32 @@ export function PortfolioDetail() {
             </Card>
           </div>
 
-          {/* Actions */}
+          {/* Trade + sector */}
           <div className="grid gap-4 lg:grid-cols-2">
-            <AddTransaction portfolioId={id} currency={currency} commodities={commodities.data?.results ?? []} onDone={refresh} />
+            <TradeCard portfolioId={id} currency={currency} commodities={commodities.data?.results ?? []} positions={v?.positions ?? []} onDone={refresh} />
             <SectorBuy portfolioId={id} currency={currency} sectors={sectors.data?.results ?? []} onDone={refresh} />
           </div>
 
           {/* Journal */}
-          <Card>
-            <CardHeader><CardTitle className="text-base">Journal des transactions</CardTitle></CardHeader>
-            <CardContent>
-              {txns.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aucune transaction.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Matière</TableHead>
-                      <TableHead className="text-right">Montant</TableHead>
-                      <TableHead className="text-right">Frais</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {txns.map((t) => (
-                      <TableRow key={t.id}>
-                        <TableCell>{formatDate(t.date)}</TableCell>
-                        <TableCell>{t.kind_display}</TableCell>
-                        <TableCell>{t.commodity?.name ?? "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatPrice(t.amount, currency)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatPrice(t.fee, currency)}</TableCell>
-                        <TableCell className="text-right">
-                          <button
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={async () => {
-                              if (!confirm("Supprimer cette transaction ?")) return
-                              await api.del(`/portfolios/${id}/transactions/${t.id}/`)
-                              refresh()
-                            }}
-                            aria-label="Supprimer"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <Journal portfolioId={id} currency={currency} txns={txns} onDone={refresh} />
         </>
+      )}
+
+      {cashKind !== null && (
+        <CashModal
+          key={cashKind}
+          portfolioId={id}
+          currency={currency}
+          kind={cashKind}
+          onClose={() => setCashKind(null)}
+          onDone={refresh}
+        />
       )}
     </div>
   )
 }
 
-function SummaryCard({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls?: string }) {
+function SummaryCard({ label, value, sub, cls }: { label: string; value: string; sub?: ReactNode; cls?: string }) {
   return (
     <Card>
       <CardContent className="pt-5">
@@ -368,13 +346,13 @@ function OnboardingCard({ portfolioId, currency, onDone }: {
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="dep">Montant ({cur})</Label>
-            <Input id="dep" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" className="w-40" />
+            <Input id="dep" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" className="w-40" inputMode="decimal" />
           </div>
           <Button disabled={!amount || Number(amount) <= 0 || busy} onClick={() => deposit(amount)}>Déposer</Button>
           <div className="flex gap-2">
-            {["1000", "5000", "10000"].map((v) => (
-              <Button key={v} type="button" variant="outline" size="sm" disabled={busy} onClick={() => deposit(v)}>
-                + {Number(v).toLocaleString("fr-FR")}
+            {["1000", "5000", "10000"].map((vv) => (
+              <Button key={vv} type="button" variant="outline" size="sm" disabled={busy} onClick={() => deposit(vv)}>
+                + {Number(vv).toLocaleString("fr-FR")}
               </Button>
             ))}
           </div>
@@ -389,43 +367,32 @@ function OnboardingCard({ portfolioId, currency, onDone }: {
   )
 }
 
-const KIND_LABELS: Record<string, { label: string; amountLabel: string }> = {
-  deposit: { label: "Dépôt", amountLabel: "Montant à déposer" },
-  withdraw: { label: "Retrait", amountLabel: "Montant à retirer" },
-  buy: { label: "Achat", amountLabel: "Montant (frais inclus)" },
-  sell: { label: "Vente", amountLabel: "Montant à vendre" },
-}
-
-function AddTransaction({ portfolioId, currency, commodities, onDone }: {
+/** Deposit / withdraw cash in a modal (kept out of the trade flow). Mounted on
+ * demand (keyed) so its state is always fresh — no reset effect needed. */
+function CashModal({ portfolioId, currency, kind, onClose, onDone }: {
   portfolioId: string
   currency: Currency
-  commodities: Commodity[]
+  kind: "deposit" | "withdraw"
+  onClose: () => void
   onDone: () => void
 }) {
-  const [kind, setKind] = useState("buy")
-  const [date, setDate] = useState(TODAY)
-  const [commodity, setCommodity] = useState("")
   const [amount, setAmount] = useState("")
+  const [date, setDate] = useState(TODAY)
   const [preview, setPreview] = useState<TransactionPreview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const needsCommodity = kind === "buy" || kind === "sell"
-  const ready = !!amount && Number(amount) > 0 && (!needsCommodity || !!commodity)
+  const isDeposit = kind === "deposit"
+  const ready = !!amount && Number(amount) > 0
 
-  // Live, debounced preview so quantity & fees update as the user types — the
-  // entered buy amount is treated as fees-included, matching the backend.
   useEffect(() => {
-    if (!ready) {
-      setPreview(null)
-      setError(null)
-      return
-    }
     let cancelled = false
-    const handle = setTimeout(async () => {
+    const h = setTimeout(async () => {
+      if (!ready) {
+        setPreview(null)
+        return
+      }
       try {
-        const pv = await api.post<TransactionPreview>(`/portfolios/${portfolioId}/preview/`, {
-          kind, date, amount, ...(needsCommodity ? { commodity } : {}),
-        })
+        const pv = await api.post<TransactionPreview>(`/portfolios/${portfolioId}/preview/`, { kind, date, amount })
         if (!cancelled) {
           setPreview(pv)
           setError(null)
@@ -436,21 +403,145 @@ function AddTransaction({ portfolioId, currency, commodities, onDone }: {
           setError(errMsg(e))
         }
       }
-    }, 350)
+    }, ready ? 300 : 0)
     return () => {
       cancelled = true
-      clearTimeout(handle)
+      clearTimeout(h)
     }
-  }, [portfolioId, kind, date, commodity, amount, needsCommodity, ready])
+  }, [portfolioId, kind, date, amount, ready])
 
   const submit = async () => {
     setBusy(true)
     setError(null)
     try {
-      await api.post(`/portfolios/${portfolioId}/transactions/`, {
-        kind, date, amount, ...(needsCommodity ? { commodity } : {}),
-      })
+      await api.post(`/portfolios/${portfolioId}/transactions/`, { kind, date, amount })
+      onDone()
+      onClose()
+    } catch (e) {
+      setError(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={isDeposit ? "Déposer des fonds" : "Retirer des fonds"}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Montant ({currency.toUpperCase()})</Label>
+            <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" inputMode="decimal" autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Date</Label>
+            <Input type="date" value={date} max={TODAY} onChange={(e) => setDate(e.target.value)} />
+          </div>
+        </div>
+        {preview && (
+          <div className="rounded-md bg-secondary/50 p-3 text-sm flex justify-between">
+            <span className="text-muted-foreground">Trésorerie après</span>
+            <span className="tabular-nums">{formatPrice(preview.cash_after, currency)}</span>
+          </div>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button disabled={!ready || busy || !!error} onClick={submit}>
+            {isDeposit ? "Déposer" : "Retirer"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** Buy or sell a commodity. Buying tops up the missing cash on demand (deposit + buy). */
+function TradeCard({ portfolioId, currency, commodities, positions, onDone }: {
+  portfolioId: string
+  currency: Currency
+  commodities: Commodity[]
+  positions: PortfolioPosition[]
+  onDone: () => void
+}) {
+  const [mode, setMode] = useState<"buy" | "sell">("buy")
+  const [commodity, setCommodity] = useState("")
+  const [amount, setAmount] = useState("")
+  const [date, setDate] = useState(TODAY)
+  const [quote, setQuote] = useState<InvestQuote | null>(null)
+  const [preview, setPreview] = useState<TransactionPreview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const options = useMemo(
+    () =>
+      mode === "buy"
+        ? commodities.map((c) => ({ value: c.slug, label: c.name }))
+        : positions.map((p) => ({ value: p.commodity.slug, label: p.commodity.name })),
+    [mode, commodities, positions],
+  )
+  const ready = !!commodity && !!amount && Number(amount) > 0
+
+  const switchMode = (m: "buy" | "sell") => {
+    setMode(m)
+    setCommodity("")
+    setAmount("")
+    setQuote(null)
+    setPreview(null)
+    setError(null)
+  }
+
+  // Live preview: buys use invest-quote (with cash shortfall), sells use preview.
+  // All state updates happen inside the timeout (never synchronously in the effect).
+  useEffect(() => {
+    let cancelled = false
+    const h = setTimeout(async () => {
+      if (!ready) {
+        setQuote(null)
+        setPreview(null)
+        setError(null)
+        return
+      }
+      try {
+        if (mode === "buy") {
+          const q = await api.post<InvestQuote>(`/portfolios/${portfolioId}/invest-quote/`, { commodity, date, amount })
+          if (!cancelled) {
+            setQuote(q)
+            setError(null)
+          }
+        } else {
+          const pv = await api.post<TransactionPreview>(`/portfolios/${portfolioId}/preview/`, { kind: "sell", commodity, date, amount })
+          if (!cancelled) {
+            setPreview(pv)
+            setError(null)
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setQuote(null)
+          setPreview(null)
+          setError(errMsg(e))
+        }
+      }
+    }, ready ? 350 : 0)
+    return () => {
+      cancelled = true
+      clearTimeout(h)
+    }
+  }, [portfolioId, mode, commodity, date, amount, ready])
+
+  const shortfall = quote ? Number(quote.shortfall) : 0
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      if (mode === "buy") {
+        await api.post(`/portfolios/${portfolioId}/invest/`, { commodity, date, amount, auto_deposit: shortfall > 0 })
+      } else {
+        await api.post(`/portfolios/${portfolioId}/transactions/`, { kind: "sell", commodity, date, amount })
+      }
       setAmount("")
+      setQuote(null)
       setPreview(null)
       onDone()
     } catch (e) {
@@ -460,73 +551,129 @@ function AddTransaction({ portfolioId, currency, commodities, onDone }: {
     }
   }
 
+  const disabled = !ready || busy || !!error || (mode === "buy" ? !quote : !preview)
+
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Nouvelle transaction</CardTitle></CardHeader>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base">Acheter / Vendre</CardTitle>
+        <div className="inline-flex rounded-md border p-0.5 text-xs font-medium">
+          {(["buy", "sell"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchMode(m)}
+              className={`rounded-[5px] px-2.5 py-1 transition-colors cursor-pointer ${
+                mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {m === "buy" ? "Achat" : "Vente"}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
       <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <Label>Matière</Label>
+          <Combobox
+            value={commodity}
+            onChange={setCommodity}
+            options={options}
+            placeholder={mode === "sell" && options.length === 0 ? "Aucune position à vendre" : "— choisir une matière —"}
+            disabled={mode === "sell" && options.length === 0}
+          />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Type</Label>
-            <select value={kind} onChange={(e) => { setKind(e.target.value); setPreview(null); setError(null) }}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-              {Object.entries(KIND_LABELS).map(([k, { label }]) => <option key={k} value={k}>{label}</option>)}
-            </select>
+            <Label>{mode === "buy" ? `Montant, frais inclus (${currency.toUpperCase()})` : `Montant à vendre (${currency.toUpperCase()})`}</Label>
+            <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" inputMode="decimal" />
           </div>
           <div className="space-y-1.5">
             <Label>Date</Label>
             <Input type="date" value={date} max={TODAY} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        {needsCommodity && (
-          <div className="space-y-1.5">
-            <Label>Matière</Label>
-            <select value={commodity} onChange={(e) => setCommodity(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-              <option value="">— choisir —</option>
-              {commodities.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
-            </select>
+
+        {mode === "buy" && quote && (
+          <div className="rounded-md bg-secondary/50 p-3 text-sm space-y-0.5">
+            <Row label="Quantité" value={`${qtyFmt(quote.quantity)} @ ${formatPrice(quote.unit_price, currency)}`} />
+            <Row label="Frais" value={formatPrice(quote.fee, currency)} />
+            <Row label="Trésorerie disponible" value={formatPrice(quote.cash, currency)} />
+            {shortfall > 0 && <Row label="Fonds manquants" value={formatPrice(quote.shortfall, currency)} cls="font-medium text-amber-600" />}
           </div>
         )}
-        <div className="space-y-1.5">
-          <Label>{KIND_LABELS[kind].amountLabel} ({currency.toUpperCase()})</Label>
-          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" inputMode="decimal" />
-        </div>
-
-        {preview && (
+        {mode === "sell" && preview && (
           <div className="rounded-md bg-secondary/50 p-3 text-sm space-y-0.5">
             {preview.unit_price && preview.quantity && (
-              <div className="flex justify-between"><span className="text-muted-foreground">Quantité</span>
-                <span className="tabular-nums">{qtyFmt(preview.quantity)} @ {formatPrice(preview.unit_price, currency)}</span></div>
+              <Row label="Quantité" value={`${qtyFmt(preview.quantity)} @ ${formatPrice(preview.unit_price, currency)}`} />
             )}
-            {kind === "buy" && (
-              <>
-                <div className="flex justify-between"><span className="text-muted-foreground">Investi</span>
-                  <span className="tabular-nums">{formatPrice(preview.amount, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Frais</span>
-                  <span className="tabular-nums">{formatPrice(preview.fee, currency)}</span></div>
-                <div className="flex justify-between font-medium"><span>Total débité (frais inclus)</span>
-                  <span className="tabular-nums">{formatPrice(Number(preview.amount) + Number(preview.fee), currency)}</span></div>
-              </>
-            )}
-            {kind === "sell" && (
-              <>
-                <div className="flex justify-between"><span className="text-muted-foreground">Produit brut</span>
-                  <span className="tabular-nums">{formatPrice(preview.amount, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Frais</span>
-                  <span className="tabular-nums">{formatPrice(preview.fee, currency)}</span></div>
-              </>
-            )}
-            <div className="flex justify-between"><span className="text-muted-foreground">Trésorerie après</span>
-              <span className="tabular-nums">{formatPrice(preview.cash_after, currency)}</span></div>
+            <Row label="Produit brut" value={formatPrice(preview.amount, currency)} />
+            <Row label="Frais" value={formatPrice(preview.fee, currency)} />
+            <Row label="Trésorerie après" value={formatPrice(preview.cash_after, currency)} />
           </div>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button type="button" disabled={!ready || busy || !!error} onClick={submit}>Valider</Button>
+        <Button type="button" disabled={disabled} onClick={submit}>
+          {mode === "sell"
+            ? "Vendre"
+            : shortfall > 0
+              ? `Déposer ${formatPrice(quote?.shortfall ?? "0", currency)} et acheter`
+              : "Acheter"}
+        </Button>
       </CardContent>
     </Card>
   )
 }
+
+function Row({ label, value, cls }: { label: string; value: string; cls?: string }) {
+  return (
+    <div className={`flex justify-between ${cls ?? ""}`}>
+      <span className={cls ? "" : "text-muted-foreground"}>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+/** Donut + an always-visible legend (color · name · weight) so weights are
+ * readable without hovering. */
+function CompositionChart({ positions, currency }: { positions: PortfolioPosition[]; currency: Currency }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Composition</CardTitle></CardHeader>
+      <CardContent>
+        {positions.length > 0 ? (
+          <div className="space-y-4">
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart>
+                <Pie data={positions.map((pos) => ({ name: pos.commodity.name, value: Number(pos.market_value) }))}
+                  dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                  {positions.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip formatter={(val) => formatPrice(Number(val), currency)}
+                  contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <ul className="space-y-1.5 text-sm">
+              {positions.map((pos, i) => (
+                <li key={pos.commodity.slug} className="flex items-center gap-2">
+                  <span className="size-2.5 shrink-0 rounded-sm" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                  <span className="flex-1 truncate">{pos.commodity.name}</span>
+                  <span className="tabular-nums font-medium">{Number(pos.weight).toFixed(1)}%</span>
+                  <span className="tabular-nums text-muted-foreground">{formatPrice(pos.market_value, currency)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Aucune position — achetez une matière ci-dessous.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const SECTOR_COLORS = PIE_COLORS
 
 function SectorBuy({ portfolioId, currency, sectors, onDone }: {
   portfolioId: string
@@ -547,6 +694,7 @@ function SectorBuy({ portfolioId, currency, sectors, onDone }: {
     enabled: !!sector,
   })
   const members = inSector.data?.results ?? []
+  const weight = members.length ? 100 / members.length : 0
   const perAsset = useMemo(() => {
     const n = members.length
     const a = Number(amount)
@@ -576,11 +724,12 @@ function SectorBuy({ portfolioId, currency, sectors, onDone }: {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label>Secteur</Label>
-            <select value={sector} onChange={(e) => setSector(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-              <option value="">— choisir —</option>
-              {sectors.map((s) => <option key={s.slug} value={s.slug}>{s.name}</option>)}
-            </select>
+            <Combobox
+              value={sector}
+              onChange={setSector}
+              options={sectors.map((s) => ({ value: s.slug, label: s.name }))}
+              placeholder="— choisir un secteur —"
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Date</Label>
@@ -591,13 +740,201 @@ function SectorBuy({ portfolioId, currency, sectors, onDone }: {
           <Label>Montant total, frais inclus ({currency.toUpperCase()})</Label>
           <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" inputMode="decimal" />
         </div>
+
         {sector && (
-          <p className="text-xs text-muted-foreground">
-            {members.length} matière(s) → {perAsset ? formatPrice(perAsset, currency) : "—"} chacune (réparti à parts égales).
-          </p>
+          inSector.isLoading ? (
+            <Skeleton className="h-24" />
+          ) : members.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Aucune matière dans ce secteur.</p>
+          ) : (
+            <div className="rounded-md border">
+              <div className="flex items-center justify-between border-b px-3 py-2 text-xs text-muted-foreground">
+                <span>{members.length} matière(s) · réparties à parts égales</span>
+                <span>{weight.toFixed(1)}% chacune</span>
+              </div>
+              <ul className="max-h-44 overflow-y-auto divide-y">
+                {members.map((c, i) => (
+                  <li key={c.slug} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                    <span className="size-2.5 shrink-0 rounded-sm" style={{ background: SECTOR_COLORS[i % SECTOR_COLORS.length] }} />
+                    <span className="flex-1 truncate">{c.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{weight.toFixed(1)}%</span>
+                    <span className="tabular-nums">{perAsset ? formatPrice(perAsset, currency) : "—"}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="button" disabled={!sector || !amount || !members.length || busy} onClick={submit}>Acheter le secteur</Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+const KIND_FILTERS = [
+  { key: "deposit", label: "Dépôt" },
+  { key: "withdraw", label: "Retrait" },
+  { key: "buy", label: "Achat" },
+  { key: "sell", label: "Vente" },
+] as const
+
+const PAGE_SIZE = 10
+
+/** Transactions journal with text search, type filters, sortable amount/fee and pagination. */
+function Journal({ portfolioId, currency, txns, onDone }: {
+  portfolioId: string
+  currency: Currency
+  txns: PortfolioTransaction[]
+  onDone: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [sortKey, setSortKey] = useState<"amount" | "fee" | null>(null)
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [page, setPage] = useState(0)
+
+  const toggleType = (k: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+    setPage(0)
+  }
+
+  const toggleSort = (key: "amount" | "fee") => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    else {
+      setSortKey(key)
+      setSortDir("desc")
+    }
+    setPage(0)
+  }
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    let rows = txns.filter((t) => !hidden.has(t.kind))
+    if (q) {
+      rows = rows.filter((t) =>
+        [t.kind_display, t.commodity?.name ?? "", t.note ?? "", formatDate(t.date), String(t.amount)]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      )
+    }
+    if (sortKey) {
+      rows = [...rows].sort((a, b) => {
+        const d = Number(a[sortKey]) - Number(b[sortKey])
+        return sortDir === "asc" ? d : -d
+      })
+    }
+    return rows
+  }, [txns, query, hidden, sortKey, sortDir])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+
+  const sortIcon = (key: "amount" | "fee") =>
+    sortKey === key ? (sortDir === "asc" ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />) : null
+
+  return (
+    <Card>
+      <CardHeader className="space-y-3">
+        <CardTitle className="text-base">Journal des transactions</CardTitle>
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(0) }}
+            placeholder="Rechercher (matière, type, note…)"
+            className="h-8 w-full sm:w-64"
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {KIND_FILTERS.map((k) => {
+              const active = !hidden.has(k.key)
+              return (
+                <button
+                  key={k.key}
+                  type="button"
+                  onClick={() => toggleType(k.key)}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                    active ? "bg-secondary text-foreground" : "text-muted-foreground line-through opacity-60"
+                  }`}
+                >
+                  {k.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucune transaction.</p>
+        ) : (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Matière</TableHead>
+                  <TableHead className="text-right">
+                    <button onClick={() => toggleSort("amount")} className="inline-flex items-center gap-1 hover:text-foreground cursor-pointer">
+                      Montant {sortIcon("amount")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <button onClick={() => toggleSort("fee")} className="inline-flex items-center gap-1 hover:text-foreground cursor-pointer">
+                      Frais {sortIcon("fee")}
+                    </button>
+                  </TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pageRows.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell>{formatDate(t.date)}</TableCell>
+                    <TableCell>{t.kind_display}</TableCell>
+                    <TableCell>{t.commodity?.name ?? "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatPrice(t.amount, currency)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatPrice(t.fee, currency)}</TableCell>
+                    <TableCell className="text-right">
+                      <button
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          if (!confirm("Supprimer cette transaction ?")) return
+                          await api.del(`/portfolios/${portfolioId}/transactions/${t.id}/`)
+                          onDone()
+                        }}
+                        aria-label="Supprimer"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+              <span>{filtered.length} transaction(s)</span>
+              {pageCount > 1 && (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <span className="tabular-nums">{safePage + 1} / {pageCount}</span>
+                  <Button variant="outline" size="sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   )

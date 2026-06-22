@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, TrendingDown, TrendingUp, Wallet } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
 import { Choropleth, type MapDatum } from "@/components/Choropleth"
@@ -356,7 +356,7 @@ function InvestCard({ slug, name }: { slug: string; name: string }) {
     queryKey: ["portfolios"],
     queryFn: () => api.get<Paginated<Portfolio>>("/portfolios/"),
   })
-  const list = portfolios.data?.results ?? []
+  const list = useMemo(() => portfolios.data?.results ?? [], [portfolios.data])
   const [pfId, setPfId] = useState("")
   const [amount, setAmount] = useState("")
   const [date, setDate] = useState(TODAY)
@@ -365,27 +365,24 @@ function InvestCard({ slug, name }: { slug: string; name: string }) {
   const [busy, setBusy] = useState(false)
   const [doneId, setDoneId] = useState<string | null>(null)
 
-  // Default to the first portfolio once the list loads.
-  useEffect(() => {
-    if (!pfId && list.length) setPfId(String(list[0].id))
-  }, [list, pfId])
-
-  const pf = list.find((p) => String(p.id) === pfId)
+  // Selected portfolio, defaulting to the first one without an effect.
+  const effectivePfId = pfId || (list[0] ? String(list[0].id) : "")
+  const pf = list.find((p) => String(p.id) === effectivePfId)
   const currency = (pf?.base_currency.toLowerCase() ?? "eur") as Currency
-  const ready = !!pfId && !!amount && Number(amount) > 0
+  const ready = !!effectivePfId && !!amount && Number(amount) > 0
 
   // Debounced quote: unit price, quantity, fees and cash shortfall as the user types.
+  // All state updates happen inside the timeout (never synchronously in the effect).
   useEffect(() => {
-    setDoneId(null)
-    if (!ready) {
-      setQuote(null)
-      setError(null)
-      return
-    }
     let cancelled = false
     const handle = setTimeout(async () => {
+      if (!ready) {
+        setQuote(null)
+        setError(null)
+        return
+      }
       try {
-        const q = await api.post<InvestQuote>(`/portfolios/${pfId}/invest-quote/`, {
+        const q = await api.post<InvestQuote>(`/portfolios/${effectivePfId}/invest-quote/`, {
           commodity: slug, date, amount,
         })
         if (!cancelled) {
@@ -398,25 +395,25 @@ function InvestCard({ slug, name }: { slug: string; name: string }) {
           setError(errMsg(e))
         }
       }
-    }, 350)
+    }, ready ? 350 : 0)
     return () => {
       cancelled = true
       clearTimeout(handle)
     }
-  }, [pfId, slug, date, amount, ready])
+  }, [effectivePfId, slug, date, amount, ready])
 
   const invest = async (autoDeposit: boolean) => {
     setBusy(true)
     setError(null)
     try {
-      await api.post(`/portfolios/${pfId}/invest/`, {
+      await api.post(`/portfolios/${effectivePfId}/invest/`, {
         commodity: slug, date, amount, auto_deposit: autoDeposit,
       })
-      qc.invalidateQueries({ queryKey: ["portfolio", pfId] })
+      qc.invalidateQueries({ queryKey: ["portfolio", effectivePfId] })
       qc.invalidateQueries({ queryKey: ["portfolios"] })
       setAmount("")
       setQuote(null)
-      setDoneId(pfId)
+      setDoneId(effectivePfId)
     } catch (e) {
       setError(errMsg(e))
     } finally {
@@ -448,18 +445,18 @@ function InvestCard({ slug, name }: { slug: string; name: string }) {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>Portefeuille</Label>
-                <select value={pfId} onChange={(e) => setPfId(e.target.value)}
+                <select value={effectivePfId} onChange={(e) => { setPfId(e.target.value); setDoneId(null) }}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
                   {list.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.base_currency})</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <Label>Montant, frais inclus ({cur})</Label>
-                <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Ex. 1000" inputMode="decimal" />
+                <Input value={amount} onChange={(e) => { setAmount(e.target.value); setDoneId(null) }} placeholder="Ex. 1000" inputMode="decimal" />
               </div>
               <div className="space-y-1.5">
                 <Label>Date</Label>
-                <Input type="date" value={date} max={TODAY} onChange={(e) => setDate(e.target.value)} />
+                <Input type="date" value={date} max={TODAY} onChange={(e) => { setDate(e.target.value); setDoneId(null) }} />
               </div>
             </div>
 

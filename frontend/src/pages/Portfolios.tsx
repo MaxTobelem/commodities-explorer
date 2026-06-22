@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, Wallet } from "lucide-react"
-import { useState } from "react"
+import { Plus, Trash2, Wallet } from "lucide-react"
+import { type MouseEvent, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
@@ -44,6 +44,19 @@ export function Portfolios() {
     },
     onError: () => setError("Création impossible — vérifie les champs."),
   })
+
+  const remove = useMutation({
+    mutationFn: (pid: number) => api.del(`/portfolios/${pid}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["portfolios"] }),
+  })
+
+  const onDelete = (e: MouseEvent, p: Portfolio) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (confirm(`Supprimer le portefeuille « ${p.name} » et toutes ses transactions ?`)) {
+      remove.mutate(p.id)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -119,12 +132,20 @@ export function Portfolios() {
           {(list.data?.results ?? []).map((p) => {
             const pnl = Number(p.summary.total_pnl_pct)
             return (
-              <Link key={p.id} to={`/portfolios/${p.id}`}>
+              <Link key={p.id} to={`/portfolios/${p.id}`} className="group relative block">
+                <button
+                  type="button"
+                  onClick={(e) => onDelete(e, p)}
+                  aria-label="Supprimer le portefeuille"
+                  className="absolute right-2 top-2 z-10 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                >
+                  <Trash2 className="size-4" />
+                </button>
                 <Card className="h-full transition-colors hover:border-primary/50">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center justify-between">
-                      <span>{p.name}</span>
-                      <span className="text-xs font-normal text-muted-foreground">{p.base_currency}</span>
+                    <CardTitle className="text-base flex items-center justify-between gap-6">
+                      <span className="truncate">{p.name}</span>
+                      <span className="text-xs font-normal text-muted-foreground shrink-0">{p.base_currency}</span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
