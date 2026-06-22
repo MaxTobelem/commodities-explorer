@@ -274,7 +274,7 @@ export function PortfolioDetail() {
           </div>
 
           {/* Journal */}
-          <Journal portfolioId={id} currency={currency} txns={txns} onDone={refresh} />
+          <Journal currency={currency} txns={txns} />
         </>
       )}
 
@@ -782,11 +782,9 @@ const KIND_FILTERS = [
 const PAGE_SIZE = 10
 
 /** Transactions journal with text search, type filters, sortable amount/fee and pagination. */
-function Journal({ portfolioId, currency, txns, onDone }: {
-  portfolioId: string
+function Journal({ currency, txns }: {
   currency: Currency
   txns: PortfolioTransaction[]
-  onDone: () => void
 }) {
   const [query, setQuery] = useState("")
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -891,7 +889,6 @@ function Journal({ portfolioId, currency, txns, onDone }: {
                       Frais {sortIcon("fee")}
                     </button>
                   </TableHead>
-                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -902,19 +899,6 @@ function Journal({ portfolioId, currency, txns, onDone }: {
                     <TableCell>{t.commodity?.name ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatPrice(t.amount, currency)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatPrice(t.fee, currency)}</TableCell>
-                    <TableCell className="text-right">
-                      <button
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={async () => {
-                          if (!confirm("Supprimer cette transaction ?")) return
-                          await api.del(`/portfolios/${portfolioId}/transactions/${t.id}/`)
-                          onDone()
-                        }}
-                        aria-label="Supprimer"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
