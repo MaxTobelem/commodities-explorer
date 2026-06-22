@@ -33,7 +33,7 @@ const RANGES = [
 export function CommodityDetail() {
   const { slug = "" } = useParams()
   const [currency, setCurrency] = useState<Currency>("usd")
-  const [range, setRange] = useState<string>("1w")
+  const [range, setRange] = useState<string | null>(null)  // null = auto (cadence-based)
   const [geo, setGeo] = useState<"production" | "reserves">("production")
 
   const commodity = useQuery({
@@ -69,13 +69,20 @@ export function CommodityDetail() {
   if (!commodity.data) return <p>Matière introuvable.</p>
   const c = commodity.data
 
-  const cutoff = RANGES.find((r) => r.key === range)?.days ?? 0
   const allPrices = prices.data ?? []
   // Anchor the window on the latest available point, not "today", so a series that
   // ends in the past (e.g. monthly World Bank data, last point months ago) still
   // renders its recent history instead of an empty chart.
   const anchorMs = allPrices.reduce((m, p) => Math.max(m, new Date(p.date).getTime()), 0)
   const anchor = anchorMs ? new Date(anchorMs) : new Date()
+  // Default scale adapts to the data's cadence: 1 week for daily-priced commodities
+  // (enough recent points for a useful week view), else 1 month — a monthly series
+  // would be near-empty at 1 week. An explicit user choice (range) always wins.
+  const weekAgo = new Date(anchor)
+  weekAgo.setDate(weekAgo.getDate() - 7)
+  const isDaily = allPrices.filter((p) => new Date(p.date) >= weekAgo).length >= 2
+  const effectiveRange = range ?? (isDaily ? "1w" : "1m")
+  const cutoff = RANGES.find((r) => r.key === effectiveRange)?.days ?? 0
   const filteredPrices = allPrices.filter((p) => {
     if (!cutoff) return true
     const limit = new Date(anchor)
@@ -146,7 +153,7 @@ export function CommodityDetail() {
               {changePct >= 0 ? "+" : ""}
               {changePct.toFixed(1)}%{" "}
               <span className="font-normal text-muted-foreground">
-                · {RANGES.find((r) => r.key === range)?.label}
+                · {RANGES.find((r) => r.key === effectiveRange)?.label}
               </span>
             </div>
           )}
@@ -172,7 +179,7 @@ export function CommodityDetail() {
                 { value: "eur", label: "EUR" },
               ]}
             />
-            <ToggleGroup value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.key, label: r.label }))} />
+            <ToggleGroup value={effectiveRange} onChange={setRange} options={RANGES.map((r) => ({ value: r.key, label: r.label }))} />
           </div>
         </CardHeader>
         <CardContent>
