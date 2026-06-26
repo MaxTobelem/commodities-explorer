@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "commodities",
     "accounts",
     "portfolios",
+    "markets",
 ]
 
 MIDDLEWARE = [

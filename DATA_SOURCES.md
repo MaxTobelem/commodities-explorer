@@ -72,6 +72,14 @@ Trois sources coordonnées par `refresh_events` (quotidien, **archive glissante 
 - **Quoi** : libellés français uniques par ISO3 (`commodities/countries.py`).
 - **Commande** : `relabel_countries` (normalise l'existant). Les nouveaux imports posent déjà le nom français.
 
+### 8. Indices financiers — export iMGP (gratuit, historique)
+- **Quoi** : indices boursiers, obligataires, high yield, hedge funds, CTA, monétaire (actions/oblig/HY/HF/CTA/cash), + IPC (inflation US & zone euro) et le change EUR/USD, en **niveaux base 100 mensuels** (depuis 1969-1999 selon la série, jusqu'à fin 2021). Servent à l'**idée 2** (backtest historique + risque), aux côtés des matières.
+- **Modèles** : `markets.MarketAsset` / `markets.AssetPrice` (une valeur datée — supporte le mensuel **et** le journalier sans changement de schéma).
+- **Commande** : `import_market_assets` — idempotent (*upsert* méta + remplacement de la série), `source="imgp_csv"`. CSV embarqués dans `backend/markets/seed/` (séparateur `;`, dates `%d/%m/%Y`, BOM).
+- **Devises** : chaque indice est coté dans sa devise (USD pour la plupart, EUR pour le monétaire/IPC zone euro) et **converti** vers la devise du backtest via la série `EURBGN` (USD pour 1 EUR), série temporelle — pas de taux fixe.
+- **Mapping** : `markets/catalog.py` (ticker → nom, classe d'actif, devise). Les variantes couvertes EUR (`_HDG`) ne sont pas importées (la conversion FX suffit).
+- **Étendre** : brancher un provider (API payante journalière) sur le même modèle, sans refonte ; ajouter un ticker = une entrée dans `catalog.ASSETS` + le CSV correspondant.
+
 ## Couverture & limites connues (maintenance)
 
 **58 matières** : **46 en cours quotidien** (Commodities-API) + **12 en mensuel** (World Bank).

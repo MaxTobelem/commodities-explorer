@@ -29,6 +29,7 @@ const Portfolios = lazy(() => import("@/pages/Portfolios").then((m) => ({ defaul
 const PortfolioDetail = lazy(() =>
   import("@/pages/PortfolioDetail").then((m) => ({ default: m.PortfolioDetail })),
 )
+const Backtest = lazy(() => import("@/pages/Backtest").then((m) => ({ default: m.Backtest })))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -62,6 +63,7 @@ function AppRoutes() {
         <Route path="/compare" element={<Compare />} />
         <Route path="/portfolios" element={<Portfolios />} />
         <Route path="/portfolios/:id" element={<PortfolioDetail />} />
+        <Route path="/backtest" element={<Backtest />} />
         <Route path="/commodity/:slug" element={<CommodityDetail />} />
         <Route path="/country/:iso3" element={<CountryDetail />} />
         <Route path="/sector/:slug" element={<SectorDetail />} />

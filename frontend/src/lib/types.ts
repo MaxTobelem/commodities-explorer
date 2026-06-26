@@ -214,3 +214,70 @@ export interface InvestQuote {
   cash: string
   shortfall: string
 }
+
+// --- Markets / backtest (idea 2) -------------------------------------------
+
+export interface Instrument {
+  ref: string // "asset:NDDUWI" | "commodity:gold"
+  label: string
+  kind: "asset" | "commodity"
+  group: string
+  group_display: string
+  currency: string
+}
+
+export interface BtVar {
+  monthly: number
+  annual: number
+}
+
+export interface BtRelativeMonth {
+  value: number
+  date: string
+}
+
+export interface BtMetrics {
+  cagr: number
+  annual_return: number
+  volatility: number
+  sharpe: number
+  max_drawdown: number
+  inflation: number
+  final_gross: number
+  final_net: number
+  fees_total: number
+  var: Record<string, BtVar>
+}
+
+export interface BtRelative {
+  tracking_error: number
+  up_capture: number
+  down_capture: number
+  best_relative_month: BtRelativeMonth | null
+  worst_relative_month: BtRelativeMonth | null
+}
+
+export interface BtResult {
+  name: string
+  weights: Record<string, number>
+  equity_gross: number[]
+  equity_net: number[]
+  drawdown: number[]
+  calendar_years: { year: number; return: number }[]
+  metrics: BtMetrics
+  relative: BtRelative | null
+}
+
+export interface BacktestResponse {
+  currency: string
+  start: string
+  end: string
+  months: number
+  rebalance: string
+  fee_percent: number
+  rf_cagr: number
+  inflation: number
+  dates: string[]
+  results: BtResult[]
+  benchmark: BtResult | null
+}
