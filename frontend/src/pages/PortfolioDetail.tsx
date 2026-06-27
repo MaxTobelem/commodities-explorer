@@ -69,25 +69,28 @@ function pnlClass(n: number) {
   return n >= 0 ? "text-emerald-600" : "text-destructive"
 }
 
-/** P&L as an amount by default; clicking the cell toggles it to a percentage of
- * cost (and back). */
+/** A single P&L cell. Clicking toggles the whole column (state lives in the
+ * parent) between the amount and a percentage of cost. */
 function PnlCell({
   pnl,
   costBasis,
   currency,
+  showPct,
+  onToggle,
 }: {
   pnl: number
   costBasis: number
   currency: Currency
+  showPct: boolean
+  onToggle: () => void
 }) {
-  const [showPct, setShowPct] = useState(false)
   const pct = costBasis > 0 ? (pnl / costBasis) * 100 : 0
   const sign = pnl >= 0 ? "+" : ""
   return (
     <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>
       <button
         type="button"
-        onClick={() => setShowPct((s) => !s)}
+        onClick={onToggle}
         title={showPct ? "Afficher le montant" : "Afficher le pourcentage"}
         className="cursor-pointer tabular-nums underline-offset-2 hover:underline"
       >
@@ -113,6 +116,8 @@ export function PortfolioDetail() {
   const navigate = useNavigate()
   const [asOf, setAsOf] = useState(TODAY)
   const [cashKind, setCashKind] = useState<"deposit" | "withdraw" | null>(null)
+  // P&L column display, toggled for the whole table at once (amount ↔ percent).
+  const [pnlAsPct, setPnlAsPct] = useState(false)
 
   const portfolio = useQuery({
     queryKey: ["portfolio", id],
@@ -282,7 +287,13 @@ export function PortfolioDetail() {
                             <TableCell className="text-right tabular-nums">{formatPrice(pos.price, currency)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatPrice(pos.market_value, currency)}</TableCell>
                             <TableCell className="text-right tabular-nums">{Number(pos.weight).toFixed(1)}%</TableCell>
-                            <PnlCell pnl={pnl} costBasis={Number(pos.cost_basis)} currency={currency} />
+                            <PnlCell
+                              pnl={pnl}
+                              costBasis={Number(pos.cost_basis)}
+                              currency={currency}
+                              showPct={pnlAsPct}
+                              onToggle={() => setPnlAsPct((s) => !s)}
+                            />
                           </TableRow>
                         )
                       })}
