@@ -69,6 +69,38 @@ function pnlClass(n: number) {
   return n >= 0 ? "text-emerald-600" : "text-destructive"
 }
 
+/** P&L shown as a percentage of cost; hovering (or clicking to pin) reveals the
+ * absolute amount in the portfolio currency instead. */
+function PnlCell({
+  pnl,
+  costBasis,
+  currency,
+}: {
+  pnl: number
+  costBasis: number
+  currency: Currency
+}) {
+  const [pinned, setPinned] = useState(false)
+  const [hover, setHover] = useState(false)
+  const pct = costBasis > 0 ? (pnl / costBasis) * 100 : 0
+  const sign = pnl >= 0 ? "+" : ""
+  const showAmount = pinned || hover
+  return (
+    <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>
+      <button
+        type="button"
+        onClick={() => setPinned((p) => !p)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title={showAmount ? "Afficher le pourcentage" : "Afficher le montant"}
+        className="cursor-pointer tabular-nums underline-offset-2 hover:underline"
+      >
+        {showAmount ? `${sign}${formatPrice(pnl, currency)}` : `${sign}${pct.toFixed(1)}%`}
+      </button>
+    </TableCell>
+  )
+}
+
 function errMsg(e: unknown): string {
   return e instanceof ApiError
     ? String((e.data as { detail?: string })?.detail ?? "Erreur")
@@ -254,7 +286,7 @@ export function PortfolioDetail() {
                             <TableCell className="text-right tabular-nums">{formatPrice(pos.price, currency)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatPrice(pos.market_value, currency)}</TableCell>
                             <TableCell className="text-right tabular-nums">{Number(pos.weight).toFixed(1)}%</TableCell>
-                            <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>{pnl >= 0 ? "+" : ""}{formatPrice(pos.unrealized_pnl, currency)}</TableCell>
+                            <PnlCell pnl={pnl} costBasis={Number(pos.cost_basis)} currency={currency} />
                           </TableRow>
                         )
                       })}
