@@ -69,8 +69,8 @@ function pnlClass(n: number) {
   return n >= 0 ? "text-emerald-600" : "text-destructive"
 }
 
-/** P&L shown as a percentage of cost; hovering (or clicking to pin) reveals the
- * absolute amount in the portfolio currency instead. */
+/** P&L as an amount by default; clicking the cell toggles it to a percentage of
+ * cost (and back). */
 function PnlCell({
   pnl,
   costBasis,
@@ -80,22 +80,18 @@ function PnlCell({
   costBasis: number
   currency: Currency
 }) {
-  const [pinned, setPinned] = useState(false)
-  const [hover, setHover] = useState(false)
+  const [showPct, setShowPct] = useState(false)
   const pct = costBasis > 0 ? (pnl / costBasis) * 100 : 0
   const sign = pnl >= 0 ? "+" : ""
-  const showAmount = pinned || hover
   return (
     <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>
       <button
         type="button"
-        onClick={() => setPinned((p) => !p)}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        title={showAmount ? "Afficher le pourcentage" : "Afficher le montant"}
+        onClick={() => setShowPct((s) => !s)}
+        title={showPct ? "Afficher le montant" : "Afficher le pourcentage"}
         className="cursor-pointer tabular-nums underline-offset-2 hover:underline"
       >
-        {showAmount ? `${sign}${formatPrice(pnl, currency)}` : `${sign}${pct.toFixed(1)}%`}
+        {showPct ? `${sign}${pct.toFixed(1)}%` : `${sign}${formatPrice(pnl, currency)}`}
       </button>
     </TableCell>
   )
